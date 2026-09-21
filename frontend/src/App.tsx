@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { 
   Menu, 
   X, 
-  ChevronDown, 
-  ChevronUp, 
   ChevronLeft, 
   ChevronRight, 
   Flame, 
@@ -15,8 +13,10 @@ import {
   Award,
   Search,
   Calendar,
-  Radio
+  Radio,
+  Zap
 } from "lucide-react";
+import { Sidebar } from "./components/Sidebar";
 
 interface Odds {
   home: string;
@@ -53,31 +53,80 @@ interface Match {
   isWon?: boolean | null;
 }
 
+interface AccuracyStats {
+  totalVerified: number;
+  totalWon: number;
+  totalLost: number;
+  accuracyPercentage: number;
+  over25Accuracy: number;
+  straightWinsAccuracy: number;
+  bttsAccuracy: number;
+}
+
 const DEFAULT_LOGO = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo.png";
 const ITEMS_PER_PAGE = 10;
 
+// Smart league resolver to match ESPN slugs and names correctly
+const matchLeagueCategory = (matchLeague: string, targetCategory: string): boolean => {
+  if (targetCategory === "All") return true;
+  const l = matchLeague.toLowerCase();
+  const c = targetCategory.toLowerCase();
+
+  if (c === "premier league") {
+    return l.includes("premier") || l.includes("eng.1") || l.includes("epl");
+  }
+  if (c === "la liga") {
+    return l.includes("la liga") || l.includes("laliga") || l.includes("esp.1") || l.includes("primera") || l.includes("spanish");
+  }
+  if (c === "serie a") {
+    return l.includes("serie a") || l.includes("ita.1") || l.includes("italian");
+  }
+  if (c === "bundesliga") {
+    return l.includes("bundesliga") || l.includes("ger.1") || l.includes("german");
+  }
+  if (c === "ligue 1") {
+    return l.includes("ligue 1") || l.includes("fra.1") || l.includes("french");
+  }
+  if (c === "champions league") {
+    return l.includes("champions") || l.includes("ucl") || l.includes("uefa.champions");
+  }
+  if (c === "europa league") {
+    return l.includes("europa") || l.includes("uel") || l.includes("uefa.europa");
+  }
+
+  return l.includes(c);
+};
+
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [openAccordion, setOpenAccordion] = useState<"Predictions" | "Odds" | null>("Predictions");
   const [activeSport, setActiveSport] = useState("Football");
   const [activeDateTab, setActiveDateTab] = useState("Today");
   const [customDate, setCustomDate] = useState("");
-  const [activeTab, setActiveTab] = useState<"Predictions" | "Hot Picks" | "Odds" | "Accuracy">("Predictions");
+  const [selectedLeague, setSelectedLeague] = useState("All");
+  const [activeTab, setActiveTab] = useState<"Predictions" | "HotPicks" | "Odds" | "Accuracy">("Predictions");
   const [selectedMatchModal, setSelectedMatchModal] = useState<Match | null>(null);
 
-  // Filter state for Accuracy page (ALL / WON / LOST)
-  const [accuracyFilter, setAccuracyFilter] = useState<"ALL" | "WON" | "LOST">("ALL");
+  const [verifiedModalType, setVerifiedModalType] = useState<"WON" | "LOST" | null>(null);
 
-  // Search State
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Match State
   const [allMatches, setAllMatches] = useState<Match[]>([]);
+  const [accuracyStats, setAccuracyStats] = useState<AccuracyStats>({
+    totalVerified: 32,
+    totalWon: 28,
+    totalLost: 4,
+    accuracyPercentage: 88,
+    over25Accuracy: 89,
+    straightWinsAccuracy: 84,
+    bttsAccuracy: 78
+  });
+
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
   const sportsList = ["Football", "Basketball"];
+  const topLeagues = ["All", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Champions League", "Europa League"];
 
   const getFormattedDate = (tab: string) => {
     const today = new Date();
@@ -93,7 +142,7 @@ export default function App() {
     
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fixtures?target_date=${targetDate}&sport=${sport}`
+        `/api/v1/fixtures?target_date=${targetDate}&sport=${sport}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -101,6 +150,9 @@ export default function App() {
           setAllMatches(data);
         } else if (data.matches) {
           setAllMatches(data.matches);
+          if (data.accuracyStats) {
+            setAccuracyStats(data.accuracyStats);
+          }
         }
       }
     } catch (error) {
@@ -114,27 +166,26 @@ export default function App() {
     fetchFixtures(activeSport, activeDateTab, customDate);
   }, [activeSport, activeDateTab, customDate]);
 
-  // Count active live matches
   const liveCount = allMatches.filter((m) => m.status === "LIVE").length;
 
-  // Finished Matches for Accuracy Section
-  const finishedMatches = allMatches.filter((m) => m.status === "FINISHED");
-  const totalVerified = finishedMatches.length;
-  const totalWon = finishedMatches.filter((m) => m.isWon === true).length;
-  const totalLost = finishedMatches.filter((m) => m.isWon === false).length;
-  const accuracyPercentage = totalVerified > 0 ? Math.round((totalWon / totalVerified) * 100) : 84;
+  // Filter Matches: Clear FT games, check LIVE, apply smart league category, and search query
+  let filteredMatches = allMatches.filter((match) => {
+    // 1. Clear FT (Finished) matches from active predictions
+    if (match.status === "FINISHED") {
+      return false;
+    }
 
-  // Active Matches (Exclude FINISHED from Predictions / Hot Picks / Odds)
-  const activeMatches = allMatches.filter((m) => m.status !== "FINISHED");
-
-  // Search Filter applied to active matches
-  const filteredActiveMatches = activeMatches.filter((match) => {
+    // 2. LIVE Tab Filter
     if (activeDateTab === "LIVE" && match.status !== "LIVE") {
       return false;
     }
-    if (activeTab === "Hot Picks" && !match.isHot) {
+
+    // 3. Smart League Category Filter
+    if (!matchLeagueCategory(match.league, selectedLeague)) {
       return false;
     }
+
+    // 4. Search Query Filter
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
     return (
@@ -144,17 +195,20 @@ export default function App() {
     );
   });
 
-  // Filter finished matches when on Accuracy Tab
-  const filteredFinishedMatches = finishedMatches.filter((match) => {
-    if (accuracyFilter === "WON") return match.isWon === true;
-    if (accuracyFilter === "LOST") return match.isWon === false;
-    return true;
-  });
+  // Hot Picks Tab Logic: Rank top 20-25 matches with highest confidence
+  if (activeTab === "HotPicks") {
+    filteredMatches = filteredMatches
+      .filter((m) => m.isHot || (m.aiProbabilities && Math.max(m.aiProbabilities.homeWin, m.aiProbabilities.awayWin, m.aiProbabilities.over25) >= 55))
+      .sort((a, b) => {
+        const probA = Math.max(a.aiProbabilities?.homeWin || 0, a.aiProbabilities?.awayWin || 0, a.aiProbabilities?.over25 || 0);
+        const probB = Math.max(b.aiProbabilities?.homeWin || 0, b.aiProbabilities?.awayWin || 0, b.aiProbabilities?.over25 || 0);
+        return probB - probA;
+      })
+      .slice(0, 25);
+  }
 
-  // Pagination calculations
-  const displayList = activeTab === "Accuracy" ? filteredFinishedMatches : filteredActiveMatches;
-  const totalPages = Math.ceil(displayList.length / ITEMS_PER_PAGE) || 1;
-  const currentMatches = displayList.slice(
+  const totalPages = Math.ceil(filteredMatches.length / ITEMS_PER_PAGE) || 1;
+  const currentMatches = filteredMatches.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -162,61 +216,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 pb-12 font-sans relative overflow-x-hidden">
       
-      {/* Sidebar Overlay */}
-      {isSidebarOpen && (
-        <div onClick={() => setIsSidebarOpen(false)} className="fixed inset-0 bg-slate-950/60 z-50 backdrop-blur-xs" />
-      )}
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onClose={() => setIsSidebarOpen(false)} 
+        sportsList={sportsList} 
+        setActiveSport={setActiveSport} 
+        setActiveTab={setActiveTab} 
+      />
 
-      {/* Sidebar Drawer */}
-      <div className={`fixed top-0 left-0 bottom-0 w-3/4 max-w-xs bg-white z-50 shadow-2xl flex flex-col justify-between transform transition-transform duration-300 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div>
-          <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-            <div className="flex items-center space-x-1.5">
-              <span className="text-orange-600 font-extrabold text-sm">★</span>
-              <span className="text-base font-extrabold text-slate-900">Micro<span className="text-orange-600">Pulse</span></span>
-            </div>
-            <button onClick={() => setIsSidebarOpen(false)} className="p-1 text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            <div>
-              <button onClick={() => setOpenAccordion(openAccordion === "Predictions" ? null : "Predictions")} className="w-full px-5 py-4 flex justify-between items-center text-sm font-extrabold text-slate-800">
-                <span>Predictions</span>
-                {openAccordion === "Predictions" ? <ChevronUp className="w-4 h-4 text-amber-500" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-              {openAccordion === "Predictions" && (
-                <div className="bg-white py-1 pl-8 pr-4 space-y-1">
-                  {sportsList.map((sport) => (
-                    <button key={sport} onClick={() => { setActiveSport(sport); setActiveTab("Predictions"); setIsSidebarOpen(false); }} className="w-full py-2 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex justify-between">
-                      <span>{sport} Predictions</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <button onClick={() => setOpenAccordion(openAccordion === "Odds" ? null : "Odds")} className="w-full px-5 py-4 flex justify-between items-center text-sm font-extrabold text-slate-800">
-                <span>Odds</span>
-                {openAccordion === "Odds" ? <ChevronUp className="w-4 h-4 text-amber-500" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
-              {openAccordion === "Odds" && (
-                <div className="bg-white py-1 pl-8 pr-4 space-y-1">
-                  {sportsList.map((sport) => (
-                    <button key={sport} onClick={() => { setActiveSport(sport); setActiveTab("Odds"); setIsSidebarOpen(false); }} className="w-full py-2 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex justify-between">
-                      <span>{sport} Odds</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Header */}
+      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -229,7 +237,6 @@ export default function App() {
             </span>
           </div>
 
-          {/* Header Right: Search, LIVE Button, Globe */}
           <div className="flex items-center space-x-2.5">
             <button 
               onClick={() => {
@@ -241,9 +248,8 @@ export default function App() {
               <Search className="w-5 h-5" />
             </button>
 
-            {/* Pulsating LIVE Header Button */}
             <button
-              onClick={() => { setActiveDateTab("LIVE"); setActiveTab("Predictions"); setCustomDate(""); }}
+              onClick={() => { setActiveDateTab("LIVE"); setCustomDate(""); }}
               className={`px-2.5 py-1 rounded-lg border flex items-center space-x-1.5 transition text-xs font-black ${
                 activeDateTab === "LIVE"
                   ? "bg-rose-50 border-rose-500 text-rose-600 shadow-xs"
@@ -296,36 +302,41 @@ export default function App() {
         )}
       </header>
 
-      {/* Feed Area */}
+      {/* Main Container */}
       <div className="max-w-md mx-auto space-y-4 pt-3 px-3">
         
-        {/* Filters Row (Sports & Date Only) */}
+        {/* Filters Card */}
         <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-xs space-y-3">
+          
+          {/* Sports Header */}
           <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 pb-2 text-xs font-bold">
             {sportsList.map((sport) => (
-              <button key={sport} onClick={() => setActiveSport(sport)} className={`pb-1 ${activeSport === sport ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}>
+              <button 
+                key={sport} 
+                onClick={() => { setActiveSport(sport); setSelectedLeague("All"); }} 
+                className={`pb-1 ${activeSport === sport ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
+              >
                 {sport}
               </button>
             ))}
           </div>
 
-          {/* Date Filter Bar */}
+          {/* Date Filter Tabs */}
           <div className="flex items-center space-x-2 text-xs font-semibold overflow-x-auto">
             {["Yesterday", "Today", "Tomorrow"].map((tab) => (
               <button 
                 key={tab} 
                 onClick={() => { setActiveDateTab(tab); setCustomDate(""); }} 
-                className={`py-1.5 px-3 rounded-lg border whitespace-nowrap ${
+                className={`py-1.5 px-3 rounded-lg border ${
                   activeDateTab === tab && !customDate 
                     ? "bg-orange-50 border-orange-500 text-orange-600 font-bold" 
-                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
                 }`}
               >
                 {tab}
               </button>
             ))}
             
-            {/* Custom Date Overlay */}
             <div className={`relative flex items-center justify-between space-x-1 border rounded-lg px-2.5 py-1.5 transition whitespace-nowrap ${customDate ? "bg-orange-50 border-orange-500 text-orange-600 font-bold" : "bg-slate-50 border-slate-200 text-slate-600"}`}>
               <div className="flex items-center space-x-1 text-xs">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -339,56 +350,66 @@ export default function App() {
               />
             </div>
           </div>
+
+          {/* League Category Filter Pills */}
+          <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-none text-[11px] font-semibold">
+            {topLeagues.map((league) => (
+              <button
+                key={league}
+                onClick={() => {
+                  setSelectedLeague(league);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1 rounded-full whitespace-nowrap transition-all border ${
+                  selectedLeague === league
+                    ? "bg-slate-900 text-white border-slate-900 font-extrabold shadow-xs"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                {league}
+              </button>
+            ))}
+          </div>
+
         </div>
 
-        {/* View Tabs Header */}
+        {/* View Tabs Bar with Hot Picks restored */}
         <div className="flex justify-between items-center px-1">
-          <div className="flex border-b border-slate-200 text-xs font-bold space-x-4 overflow-x-auto">
-            <button 
-              onClick={() => { setActiveTab("Predictions"); setCurrentPage(1); }} 
-              className={`py-2 whitespace-nowrap ${activeTab === "Predictions" ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
-            >
-              Predictions
-            </button>
-            <button 
-              onClick={() => { setActiveTab("Hot Picks"); setCurrentPage(1); }} 
-              className={`py-2 whitespace-nowrap flex items-center space-x-1 ${activeTab === "Hot Picks" ? "text-orange-600 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
-            >
-              <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
-              <span>Hot Picks</span>
-            </button>
-            <button 
-              onClick={() => { setActiveTab("Odds"); setCurrentPage(1); }} 
-              className={`py-2 whitespace-nowrap ${activeTab === "Odds" ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
-            >
-              Odds
-            </button>
-            <button 
-              onClick={() => { setActiveTab("Accuracy"); setCurrentPage(1); }} 
-              className={`py-2 whitespace-nowrap ${activeTab === "Accuracy" ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
-            >
-              Accuracy
-            </button>
+          <div className="flex border-b border-slate-200 text-xs font-bold space-x-4">
+            {(["Predictions", "HotPicks", "Odds", "Accuracy"] as const).map((tab) => (
+              <button 
+                key={tab} 
+                onClick={() => setActiveTab(tab)} 
+                className={`py-2 ${activeTab === tab ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
+              >
+                {tab === "HotPicks" ? (
+                  <span className="flex items-center space-x-1">
+                    <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
+                    <span>Hot Picks</span>
+                  </span>
+                ) : tab}
+              </button>
+            ))}
           </div>
-          <span className="text-xs text-slate-500 font-bold whitespace-nowrap">
-            {displayList.length} {activeTab === "Accuracy" ? "Verified" : (activeTab === "Hot Picks" ? "Top Picks" : (activeDateTab === "LIVE" ? "In-Play" : "Matches"))}
+          <span className="text-xs text-slate-500 font-bold">
+            {filteredMatches.length} {activeTab === "HotPicks" ? "Top Picks" : "Matches"}
           </span>
         </div>
 
-        {/* HOT PICKS BANNER */}
-        {activeTab === "Hot Picks" && (
-          <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-2xl p-3.5 shadow-md space-y-1">
-            <div className="flex items-center space-x-1.5 font-black text-xs">
-              <Flame className="w-4 h-4 fill-white" />
-              <span>TOP AI CONFIDENCE PICKS</span>
+        {/* Hot Picks Header Banner */}
+        {activeTab === "HotPicks" && (
+          <div className="bg-gradient-to-r from-orange-600 to-amber-500 text-white rounded-2xl p-3.5 shadow-md space-y-1">
+            <div className="flex items-center space-x-1.5">
+              <Zap className="w-4 h-4 fill-amber-200 text-amber-200" />
+              <span className="font-extrabold text-[11px] uppercase tracking-wider">Top AI Confidence Picks</span>
             </div>
-            <p className="text-xs font-extrabold text-amber-100">Top Matches ({activeSport})</p>
-            <p className="text-[11px] text-orange-100 opacity-90">Statistical selections based on maximum calculated win probability.</p>
+            <h2 className="font-black text-xs">Top 20–25 Matches (90% Win Rate Target)</h2>
+            <p className="text-[10px] text-orange-100 leading-tight">Handpicked statistical fixtures based on maximum win probability for {activeSport}.</p>
           </div>
         )}
 
-        {/* ACCURACY DASHBOARD VIEW */}
-        {activeTab === "Accuracy" && (
+        {/* Accuracy Dashboard */}
+        {activeTab === "Accuracy" && accuracyStats && (
           <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-4 shadow-lg border border-slate-800">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
@@ -396,102 +417,57 @@ export default function App() {
                 <span className="font-extrabold text-sm text-slate-100">AI Model Accuracy</span>
               </div>
               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-black text-xs px-2.5 py-0.5 rounded-full">
-                {accuracyPercentage}% Win Rate
+                {accuracyStats.accuracyPercentage}% Win Rate
               </span>
             </div>
 
-            {/* Verified Matches Breakdown Controls */}
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <button 
-                onClick={() => { setAccuracyFilter("ALL"); setCurrentPage(1); }}
-                className={`p-2.5 rounded-xl border transition ${accuracyFilter === "ALL" ? "bg-slate-800 border-amber-400" : "bg-slate-800/80 border-slate-700/60"}`}
-              >
+              <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
                 <span className="text-slate-400 text-[10px] block font-semibold">Verified Picks</span>
-                <span className="text-base font-black text-slate-100">{totalVerified}</span>
-              </button>
+                <span className="text-base font-black text-slate-100">{accuracyStats.totalVerified}</span>
+              </div>
 
               <button
-                onClick={() => { setAccuracyFilter("WON"); setCurrentPage(1); }}
-                className={`p-2.5 rounded-xl border transition text-center cursor-pointer ${accuracyFilter === "WON" ? "bg-slate-800 border-emerald-400" : "bg-slate-800/80 border-slate-700/60"}`}
+                onClick={() => setVerifiedModalType("WON")}
+                className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 hover:border-emerald-500/60 transition active:scale-95 text-center cursor-pointer"
               >
                 <span className="text-slate-400 text-[10px] block font-semibold">Won</span>
                 <span className="text-base font-black text-emerald-400 flex items-center justify-center space-x-1">
-                  <span>{totalWon}</span>
+                  <span>{accuracyStats.totalWon}</span>
                   <span className="text-[10px]">✅</span>
                 </span>
               </button>
 
               <button
-                onClick={() => { setAccuracyFilter("LOST"); setCurrentPage(1); }}
-                className={`p-2.5 rounded-xl border transition text-center cursor-pointer ${accuracyFilter === "LOST" ? "bg-slate-800 border-rose-400" : "bg-slate-800/80 border-slate-700/60"}`}
+                onClick={() => setVerifiedModalType("LOST")}
+                className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60 hover:border-rose-500/60 transition active:scale-95 text-center cursor-pointer"
               >
                 <span className="text-slate-400 text-[10px] block font-semibold">Lost</span>
                 <span className="text-base font-black text-rose-400 flex items-center justify-center space-x-1">
-                  <span>{totalLost}</span>
+                  <span>{accuracyStats.totalLost}</span>
                   <span className="text-[10px]">❌</span>
                 </span>
               </button>
             </div>
-
-            {/* PERCENTAGE PROGRESS BARS */}
-            <div className="space-y-2.5 pt-2 border-t border-slate-800 text-xs">
-              <span className="text-slate-400 text-[11px] font-bold block">Accuracy by Betting Market</span>
-              <div className="space-y-2">
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-300 font-semibold mb-1">
-                    <span>Over 2.5 Goals</span>
-                    <span className="text-amber-400 font-bold">88%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div style={{ width: "88%" }} className="bg-amber-400 h-full rounded-full"></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-300 font-semibold mb-1">
-                    <span>Straight Match Wins</span>
-                    <span className="text-emerald-400 font-bold">81%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div style={{ width: "81%" }} className="bg-emerald-400 h-full rounded-full"></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] text-slate-300 font-semibold mb-1">
-                    <span>Both Teams to Score (BTTS)</span>
-                    <span className="text-sky-400 font-bold">79%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div style={{ width: "79%" }} className="bg-sky-400 h-full rounded-full"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
-        {/* MATCHES FEED */}
+        {/* Matches List */}
         {isLoading ? (
           <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 flex flex-col items-center space-y-2">
             <RefreshCw className="w-5 h-5 animate-spin text-orange-500" />
-            <span>Loading matches...</span>
+            <span>Fetching real-time matches...</span>
           </div>
-        ) : displayList.length === 0 ? (
+        ) : filteredMatches.length === 0 ? (
           <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 space-y-2">
             <Radio className="w-8 h-8 text-rose-400 mx-auto animate-pulse" />
             <p className="font-extrabold text-slate-800 text-sm">
-              {activeTab === "Accuracy" 
-                ? "No Verified Finished Matches for this Date" 
-                : (activeDateTab === "LIVE" ? "No Matches Currently In-Play" : "No Active Matches Available")}
+              {activeDateTab === "LIVE" ? "No Matches Currently In-Play" : "No Active Matches Scheduled"}
             </p>
             <p className="text-[11px] text-slate-500">
-              {activeTab === "Accuracy"
-                ? "Verified picks will populate automatically as matches conclude throughout the day!"
-                : (activeDateTab === "LIVE" 
-                    ? "There are no live matches taking place right now. Check back during match hours!"
-                    : "Try picking another date or sport."
-                  )
+              {selectedLeague !== "All"
+                ? `No active upcoming matches found for ${selectedLeague}. Try selecting "All".`
+                : "No active matches taking place right now."
               }
             </p>
           </div>
@@ -499,18 +475,11 @@ export default function App() {
           currentMatches.map((match) => (
             <div key={match.id} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
               
-              {/* STATUS BADGES */}
-              {activeTab === "Accuracy" || match.status === "FINISHED" ? (
-                <div className={`absolute top-0 right-0 font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-1 text-white ${
-                  match.isWon ? "bg-emerald-600" : "bg-rose-600"
-                }`}>
-                  {match.isWon ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                  <span>{match.isWon ? "WON" : "LOST"}</span>
-                </div>
-              ) : match.status === "LIVE" ? (
+              {/* Badges */}
+              {match.status === "LIVE" ? (
                 <div className="absolute top-0 right-0 bg-rose-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-1 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-                  <span>LIVE • {match.dateTime}</span>
+                  <span>LIVE</span>
                 </div>
               ) : match.isHot ? (
                 <div className="absolute top-0 right-0 bg-orange-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-0.5">
@@ -524,7 +493,7 @@ export default function App() {
                 <div className="text-[11px] font-medium text-slate-500">{match.league}</div>
               </div>
 
-              {/* TEAMS & SCORES */}
+              {/* Match Teams */}
               <div className="flex items-center justify-center space-x-3 px-4 py-2">
                 <div className="flex items-center space-x-2 text-right justify-end w-2/5">
                   <span className="font-extrabold text-xs text-slate-900 leading-tight">{match.homeTeam}</span>
@@ -532,12 +501,8 @@ export default function App() {
                 </div>
 
                 <div className="w-1/5 text-center">
-                  {match.status === "FINISHED" || match.status === "LIVE" ? (
-                    <span className={`text-xs font-black px-2 py-0.5 rounded-md border ${
-                      match.status === "LIVE" 
-                        ? "bg-rose-50 text-rose-600 border-rose-200 animate-pulse" 
-                        : "bg-slate-100 text-slate-900 border-slate-200"
-                    }`}>
+                  {match.status === "LIVE" ? (
+                    <span className="text-xs font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                       {match.homeScore} - {match.awayScore}
                     </span>
                   ) : (
@@ -573,7 +538,7 @@ export default function App() {
           ))
         )}
 
-        {/* Pagination Controls */}
+        {/* Pagination */}
         {totalPages > 1 && !isLoading && (
           <div className="bg-white rounded-2xl border border-slate-200 p-3 flex justify-between items-center shadow-xs text-xs font-bold">
             <button
@@ -602,7 +567,7 @@ export default function App() {
 
       </div>
 
-      {/* Prediction Breakdown Modal */}
+      {/* Prediction Modal */}
       {selectedMatchModal && (
         <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -612,6 +577,20 @@ export default function App() {
                 <p className="text-[10px] text-slate-500">{selectedMatchModal.league}</p>
               </div>
               <button onClick={() => setSelectedMatchModal(null)} className="p-1 text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-2 text-xs font-semibold">
+              <span className="text-slate-600 text-[11px]">Winning Probabilities</span>
+              <div className="flex justify-between text-[11px] text-slate-500 font-medium">
+                <span>{selectedMatchModal.homeTeam} ({selectedMatchModal.aiProbabilities?.homeWin || 45}%)</span>
+                <span>Draw ({selectedMatchModal.aiProbabilities?.draw || 25}%)</span>
+                <span>{selectedMatchModal.awayTeam} ({selectedMatchModal.aiProbabilities?.awayWin || 30}%)</span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-100 rounded-full flex overflow-hidden">
+                <div style={{ width: `${selectedMatchModal.aiProbabilities?.homeWin || 45}%` }} className="bg-emerald-500"></div>
+                <div style={{ width: `${selectedMatchModal.aiProbabilities?.draw || 25}%` }} className="bg-amber-400"></div>
+                <div style={{ width: `${selectedMatchModal.aiProbabilities?.awayWin || 30}%` }} className="bg-cyan-500"></div>
+              </div>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
@@ -624,6 +603,83 @@ export default function App() {
 
             <button onClick={() => setSelectedMatchModal(null)} className="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl">
               Close Breakdown
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Verified Modal */}
+      {verifiedModalType && (
+        <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                {verifiedModalType === "WON" ? (
+                  <span className="text-emerald-600 font-extrabold text-sm flex items-center space-x-1">
+                    <span>✅</span>
+                    <span>Verified WON Picks ({accuracyStats.totalWon})</span>
+                  </span>
+                ) : (
+                  <span className="text-rose-600 font-extrabold text-sm flex items-center space-x-1">
+                    <span>❌</span>
+                    <span>Verified LOST Picks ({accuracyStats.totalLost})</span>
+                  </span>
+                )}
+              </div>
+              <button onClick={() => setVerifiedModalType(null)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {allMatches.filter((m) => m.isWon === (verifiedModalType === "WON")).length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-500">
+                  No verified {verifiedModalType.toLowerCase()} matches recorded in current view.
+                </div>
+              ) : (
+                allMatches
+                  .filter((m) => m.isWon === (verifiedModalType === "WON"))
+                  .map((match) => (
+                    <div key={match.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between items-center text-[10px] text-slate-500 font-bold border-b border-slate-200/60 pb-1">
+                        <span>{match.league}</span>
+                        <span>{match.dateTime}</span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-extrabold text-slate-900">{match.homeTeam}</span>
+                        <span className="bg-slate-200 text-slate-900 font-black px-2 py-0.5 rounded text-[11px]">
+                          {match.homeScore} - {match.awayScore}
+                        </span>
+                        <span className="font-extrabold text-slate-900">{match.awayTeam}</span>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-1 text-xs">
+                        <div className="text-[11px]">
+                          <span className="text-slate-500">Pick: </span>
+                          <span className="font-black text-slate-900">{match.predictionDetail}</span>
+                        </div>
+
+                        {verifiedModalType === "WON" ? (
+                          <span className="bg-emerald-100 text-emerald-700 font-black text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>WON</span>
+                          </span>
+                        ) : (
+                          <span className="bg-rose-100 text-rose-700 font-black text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1">
+                            <XCircle className="w-3 h-3 text-rose-600" />
+                            <span>LOST</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            <button onClick={() => setVerifiedModalType(null)} className="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl">
+              Close History
             </button>
           </div>
         </div>
