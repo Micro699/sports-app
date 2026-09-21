@@ -66,10 +66,16 @@ interface AccuracyStats {
 const DEFAULT_LOGO = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo.png";
 const ITEMS_PER_PAGE = 10;
 
-// Clean up ugly raw ESPN league names into clean display titles
+// Generic phase terms to replace with clean competition labels
+const GENERIC_STAGE_NAMES = [
+  "first stage", "second stage", "group stage", "regular season", 
+  "playoffs", "stage 1", "stage 2", "knockout stage", "preliminary round", "qualification"
+];
+
 const formatLeagueName = (name: string): string => {
-  if (!name) return "General League";
-  const lower = name.toLowerCase();
+  if (!name) return "Regional Leagues";
+  const lower = name.toLowerCase().trim();
+
   if (lower.includes("premier") || lower.includes("eng.1")) return "Premier League";
   if (lower.includes("laliga") || lower.includes("la liga") || lower.includes("esp.1")) return "La Liga";
   if (lower.includes("serie a") || lower.includes("ita.1")) return "Serie A";
@@ -77,6 +83,12 @@ const formatLeagueName = (name: string): string => {
   if (lower.includes("ligue 1") || lower.includes("fra.1")) return "Ligue 1";
   if (lower.includes("champions league") || lower.includes("uefa.champions")) return "Champions League";
   if (lower.includes("europa league") || lower.includes("uefa.europa")) return "Europa League";
+
+  // Re-route generic ESPN stage names to Regional Leagues
+  if (GENERIC_STAGE_NAMES.includes(lower)) {
+    return "Regional Leagues";
+  }
+
   return name.replace(/20\d\d-/g, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
@@ -120,7 +132,7 @@ export default function App() {
   const fetchFixtures = async (sport: string, dateTab: string, dateInput: string) => {
     setIsLoading(true);
     setCurrentPage(1);
-    setSelectedLeague("All"); // Reset league selection whenever date or sport changes
+    setSelectedLeague("All");
     const targetDate = dateInput || getFormattedDate(dateTab === "LIVE" ? "Today" : dateTab);
     
     try {
@@ -131,7 +143,7 @@ export default function App() {
         const data = await response.json();
         const matchesList = Array.isArray(data) ? data : (data.matches || []);
         
-        // Clean up league names across all matches
+        // Clean up raw ESPN names and convert generic stage titles
         const cleanedMatches = matchesList.map((m: Match) => ({
           ...m,
           league: formatLeagueName(m.league)
@@ -155,30 +167,32 @@ export default function App() {
 
   const liveCount = allMatches.filter((m) => m.status === "LIVE").length;
 
-  // DYNAMIC LEAGUES: Extract distinct leagues that actually have games today
+  // DYNAMIC LEAGUE PILLS: Exclude generic stage names
   const activeLeaguesToday = [
     "All",
-    ...Array.from(new Set(allMatches.filter((m) => m.status !== "FINISHED").map((m) => m.league))).filter(Boolean)
+    ...Array.from(
+      new Set(
+        allMatches
+          .filter((m) => m.status !== "FINISHED")
+          .map((m) => m.league)
+      )
+    ).filter(Boolean)
   ];
 
-  // Filter Matches: Clear FT matches, check LIVE state, filter by active league pill & search query
+  // Filter Matches
   let filteredMatches = allMatches.filter((match) => {
-    // 1. Clear FT matches from active predictions
     if (match.status === "FINISHED") {
       return false;
     }
 
-    // 2. LIVE Tab Filter
     if (activeDateTab === "LIVE" && match.status !== "LIVE") {
       return false;
     }
 
-    // 3. Dynamic League Filter
     if (selectedLeague !== "All" && match.league !== selectedLeague) {
       return false;
     }
 
-    // 4. Search Filter
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
     return (
@@ -217,7 +231,6 @@ export default function App() {
         setActiveTab={setActiveTab} 
       />
 
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -295,13 +308,10 @@ export default function App() {
         )}
       </header>
 
-      {/* Main Container */}
       <div className="max-w-md mx-auto space-y-4 pt-3 px-3">
         
-        {/* Filters Card */}
         <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-xs space-y-3">
           
-          {/* Sports Header */}
           <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 pb-2 text-xs font-bold">
             {sportsList.map((sport) => (
               <button 
@@ -314,7 +324,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* Date Filter Tabs */}
           <div className="flex items-center space-x-2 text-xs font-semibold overflow-x-auto">
             {["Yesterday", "Today", "Tomorrow"].map((tab) => (
               <button 
@@ -344,7 +353,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* DYNAMIC LEAGUE PILLS */}
+          {/* DYNAMIC LEAGUE PILLS (Stage names excluded) */}
           {activeLeaguesToday.length > 1 && (
             <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-none text-[11px] font-semibold">
               {activeLeaguesToday.map((league) => (
@@ -368,7 +377,6 @@ export default function App() {
 
         </div>
 
-        {/* View Tabs Bar */}
         <div className="flex justify-between items-center px-1">
           <div className="flex border-b border-slate-200 text-xs font-bold space-x-4">
             {(["Predictions", "HotPicks", "Odds", "Accuracy"] as const).map((tab) => (
@@ -391,7 +399,6 @@ export default function App() {
           </span>
         </div>
 
-        {/* Hot Picks Banner */}
         {activeTab === "HotPicks" && (
           <div className="bg-gradient-to-r from-orange-600 to-amber-500 text-white rounded-2xl p-3.5 shadow-md space-y-1">
             <div className="flex items-center space-x-1.5">
@@ -403,7 +410,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Accuracy Dashboard */}
         {activeTab === "Accuracy" && accuracyStats && (
           <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-4 shadow-lg border border-slate-800">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -447,7 +453,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Matches List */}
         {isLoading ? (
           <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 flex flex-col items-center space-y-2">
             <RefreshCw className="w-5 h-5 animate-spin text-orange-500" />
@@ -467,7 +472,6 @@ export default function App() {
           currentMatches.map((match) => (
             <div key={match.id} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
               
-              {/* Badges */}
               {match.status === "LIVE" ? (
                 <div className="absolute top-0 right-0 bg-rose-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-1 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
@@ -485,7 +489,6 @@ export default function App() {
                 <div className="text-[11px] font-medium text-slate-500">{match.league}</div>
               </div>
 
-              {/* Match Teams */}
               <div className="flex items-center justify-center space-x-3 px-4 py-2">
                 <div className="flex items-center space-x-2 text-right justify-end w-2/5">
                   <span className="font-extrabold text-xs text-slate-900 leading-tight">{match.homeTeam}</span>
@@ -530,7 +533,6 @@ export default function App() {
           ))
         )}
 
-        {/* Pagination */}
         {totalPages > 1 && !isLoading && (
           <div className="bg-white rounded-2xl border border-slate-200 p-3 flex justify-between items-center shadow-xs text-xs font-bold">
             <button
@@ -559,7 +561,6 @@ export default function App() {
 
       </div>
 
-      {/* Prediction Modal */}
       {selectedMatchModal && (
         <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -600,7 +601,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Verified Modal */}
       {verifiedModalType && (
         <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
