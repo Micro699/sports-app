@@ -126,7 +126,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const sportsList = ["Football", "Basketball"];
-  const topLeagues = ["All", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Champions League", "Europa League"];
+  const topLeagues = ["All"];
 
   const getFormattedDate = (tab: string) => {
     const today = new Date();
