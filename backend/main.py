@@ -1,9 +1,12 @@
 import math
+import os
 import requests
 from datetime import datetime
 from typing import List, Optional, Tuple
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 app = FastAPI(title="MicroPulse Advanced Momentum & Form AI Engine")
@@ -92,18 +95,14 @@ LEAGUE_MAPPING = {
 }
 
 def normalize_league_name(raw_league: str) -> str:
-    """Normalizes bloated raw API league strings into standard sportsbook category names."""
     if not raw_league:
         return "Top League"
     
     clean_lower = raw_league.strip().lower()
-    
-    # Check exact dictionary match or substring match
     for key, standard_name in LEAGUE_MAPPING.items():
         if key in clean_lower:
             return standard_name
             
-    # Fallback cleanup if league is not in the dictionary
     cleaned_str = (
         raw_league.replace("Spanish ", "")
                   .replace("English ", "")
@@ -307,17 +306,8 @@ ESPN_SPORT_ENDPOINTS = {
         ("basketball/mens-college-basketball", "NCAA Basketball")
     ]
 }
-@app.get("/")
-def read_root():
-    return {
-        "status": "online",
-        "service": "MicroPulse AI Engine",
-        "endpoints": {
-            "fixtures": "/api/v1/fixtures?target_date=2026-09-21&sport=Football",
-            "docs": "/docs"
-        }
-    }
 
+# --- API ENDPOINTS ---
 @app.get("/api/v1/fixtures", response_model=List[MatchSchema])
 def get_fixtures(
     target_date: str = Query(..., description="YYYY-MM-DD"),
@@ -341,7 +331,6 @@ def get_fixtures(
                     league_info = event.get("league", {}) or {}
                     raw_league_name = league_info.get("name") or event.get("season", {}).get("slug") or default_league_label
                     
-                    # Apply league normalization to match betting apps
                     league_name = normalize_league_name(raw_league_name)
 
                     status_info = event.get("status", {}).get("type", {})
@@ -454,3 +443,18 @@ def get_fixtures(
         ))
 
     return matches
+
+# --- FRONTEND APP MOUNTING ---
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
+
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_frontend(full_path: str):
+        if full_path.startswith("api/"):
+            return {"detail": "API endpoint not found"}
+        file_path = os.path.join(frontend_dist, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
