@@ -66,35 +66,18 @@ interface AccuracyStats {
 const DEFAULT_LOGO = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo.png";
 const ITEMS_PER_PAGE = 10;
 
-// Smart league resolver to match ESPN slugs and names correctly
-const matchLeagueCategory = (matchLeague: string, targetCategory: string): boolean => {
-  if (targetCategory === "All") return true;
-  const l = matchLeague.toLowerCase();
-  const c = targetCategory.toLowerCase();
-
-  if (c === "premier league") {
-    return l.includes("premier") || l.includes("eng.1") || l.includes("epl");
-  }
-  if (c === "la liga") {
-    return l.includes("la liga") || l.includes("laliga") || l.includes("esp.1") || l.includes("primera") || l.includes("spanish");
-  }
-  if (c === "serie a") {
-    return l.includes("serie a") || l.includes("ita.1") || l.includes("italian");
-  }
-  if (c === "bundesliga") {
-    return l.includes("bundesliga") || l.includes("ger.1") || l.includes("german");
-  }
-  if (c === "ligue 1") {
-    return l.includes("ligue 1") || l.includes("fra.1") || l.includes("french");
-  }
-  if (c === "champions league") {
-    return l.includes("champions") || l.includes("ucl") || l.includes("uefa.champions");
-  }
-  if (c === "europa league") {
-    return l.includes("europa") || l.includes("uel") || l.includes("uefa.europa");
-  }
-
-  return l.includes(c);
+// Clean up ugly raw ESPN league names into clean display titles
+const formatLeagueName = (name: string): string => {
+  if (!name) return "General League";
+  const lower = name.toLowerCase();
+  if (lower.includes("premier") || lower.includes("eng.1")) return "Premier League";
+  if (lower.includes("laliga") || lower.includes("la liga") || lower.includes("esp.1")) return "La Liga";
+  if (lower.includes("serie a") || lower.includes("ita.1")) return "Serie A";
+  if (lower.includes("bundesliga") || lower.includes("ger.1")) return "Bundesliga";
+  if (lower.includes("ligue 1") || lower.includes("fra.1")) return "Ligue 1";
+  if (lower.includes("champions league") || lower.includes("uefa.champions")) return "Champions League";
+  if (lower.includes("europa league") || lower.includes("uefa.europa")) return "Europa League";
+  return name.replace(/20\d\d-/g, "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
 export default function App() {
@@ -126,7 +109,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const sportsList = ["Football", "Basketball"];
-  const topLeagues = ["All", "Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1", "Champions League", "Europa League"];
 
   const getFormattedDate = (tab: string) => {
     const today = new Date();
@@ -138,6 +120,7 @@ export default function App() {
   const fetchFixtures = async (sport: string, dateTab: string, dateInput: string) => {
     setIsLoading(true);
     setCurrentPage(1);
+    setSelectedLeague("All"); // Reset league selection whenever date or sport changes
     const targetDate = dateInput || getFormattedDate(dateTab === "LIVE" ? "Today" : dateTab);
     
     try {
@@ -146,13 +129,17 @@ export default function App() {
       );
       if (response.ok) {
         const data = await response.json();
-        if (Array.isArray(data)) {
-          setAllMatches(data);
-        } else if (data.matches) {
-          setAllMatches(data.matches);
-          if (data.accuracyStats) {
-            setAccuracyStats(data.accuracyStats);
-          }
+        const matchesList = Array.isArray(data) ? data : (data.matches || []);
+        
+        // Clean up league names across all matches
+        const cleanedMatches = matchesList.map((m: Match) => ({
+          ...m,
+          league: formatLeagueName(m.league)
+        }));
+
+        setAllMatches(cleanedMatches);
+        if (data.accuracyStats) {
+          setAccuracyStats(data.accuracyStats);
         }
       }
     } catch (error) {
@@ -168,9 +155,15 @@ export default function App() {
 
   const liveCount = allMatches.filter((m) => m.status === "LIVE").length;
 
-  // Filter Matches: Clear FT games, check LIVE, apply smart league category, and search query
+  // DYNAMIC LEAGUES: Extract distinct leagues that actually have games today
+  const activeLeaguesToday = [
+    "All",
+    ...Array.from(new Set(allMatches.filter((m) => m.status !== "FINISHED").map((m) => m.league))).filter(Boolean)
+  ];
+
+  // Filter Matches: Clear FT matches, check LIVE state, filter by active league pill & search query
   let filteredMatches = allMatches.filter((match) => {
-    // 1. Clear FT (Finished) matches from active predictions
+    // 1. Clear FT matches from active predictions
     if (match.status === "FINISHED") {
       return false;
     }
@@ -180,12 +173,12 @@ export default function App() {
       return false;
     }
 
-    // 3. Smart League Category Filter
-    if (!matchLeagueCategory(match.league, selectedLeague)) {
+    // 3. Dynamic League Filter
+    if (selectedLeague !== "All" && match.league !== selectedLeague) {
       return false;
     }
 
-    // 4. Search Query Filter
+    // 4. Search Filter
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
     return (
@@ -195,7 +188,7 @@ export default function App() {
     );
   });
 
-  // Hot Picks Tab Logic: Rank top 20-25 matches with highest confidence
+  // Hot Picks Tab Logic
   if (activeTab === "HotPicks") {
     filteredMatches = filteredMatches
       .filter((m) => m.isHot || (m.aiProbabilities && Math.max(m.aiProbabilities.homeWin, m.aiProbabilities.awayWin, m.aiProbabilities.over25) >= 55))
@@ -351,29 +344,31 @@ export default function App() {
             </div>
           </div>
 
-          {/* League Category Filter Pills */}
-          <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-none text-[11px] font-semibold">
-            {topLeagues.map((league) => (
-              <button
-                key={league}
-                onClick={() => {
-                  setSelectedLeague(league);
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1 rounded-full whitespace-nowrap transition-all border ${
-                  selectedLeague === league
-                    ? "bg-slate-900 text-white border-slate-900 font-extrabold shadow-xs"
-                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                }`}
-              >
-                {league}
-              </button>
-            ))}
-          </div>
+          {/* DYNAMIC LEAGUE PILLS */}
+          {activeLeaguesToday.length > 1 && (
+            <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 scrollbar-none text-[11px] font-semibold">
+              {activeLeaguesToday.map((league) => (
+                <button
+                  key={league}
+                  onClick={() => {
+                    setSelectedLeague(league);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-all border ${
+                    selectedLeague === league
+                      ? "bg-slate-900 text-white border-slate-900 font-extrabold shadow-xs"
+                      : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  {league}
+                </button>
+              ))}
+            </div>
+          )}
 
         </div>
 
-        {/* View Tabs Bar with Hot Picks restored */}
+        {/* View Tabs Bar */}
         <div className="flex justify-between items-center px-1">
           <div className="flex border-b border-slate-200 text-xs font-bold space-x-4">
             {(["Predictions", "HotPicks", "Odds", "Accuracy"] as const).map((tab) => (
@@ -396,15 +391,15 @@ export default function App() {
           </span>
         </div>
 
-        {/* Hot Picks Header Banner */}
+        {/* Hot Picks Banner */}
         {activeTab === "HotPicks" && (
           <div className="bg-gradient-to-r from-orange-600 to-amber-500 text-white rounded-2xl p-3.5 shadow-md space-y-1">
             <div className="flex items-center space-x-1.5">
               <Zap className="w-4 h-4 fill-amber-200 text-amber-200" />
               <span className="font-extrabold text-[11px] uppercase tracking-wider">Top AI Confidence Picks</span>
             </div>
-            <h2 className="font-black text-xs">Top 20–25 Matches (90% Win Rate Target)</h2>
-            <p className="text-[10px] text-orange-100 leading-tight">Handpicked statistical fixtures based on maximum win probability for {activeSport}.</p>
+            <h2 className="font-black text-xs">Top Matches ({activeSport})</h2>
+            <p className="text-[10px] text-orange-100 leading-tight">Statistical selections based on maximum calculated win probability.</p>
           </div>
         )}
 
@@ -462,13 +457,10 @@ export default function App() {
           <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 space-y-2">
             <Radio className="w-8 h-8 text-rose-400 mx-auto animate-pulse" />
             <p className="font-extrabold text-slate-800 text-sm">
-              {activeDateTab === "LIVE" ? "No Matches Currently In-Play" : "No Active Matches Scheduled"}
+              {activeDateTab === "LIVE" ? "No Matches Currently In-Play" : "No Matches Available"}
             </p>
             <p className="text-[11px] text-slate-500">
-              {selectedLeague !== "All"
-                ? `No active upcoming matches found for ${selectedLeague}. Try selecting "All".`
-                : "No active matches taking place right now."
-              }
+              No upcoming matches taking place for this selection right now.
             </p>
           </div>
         ) : (
