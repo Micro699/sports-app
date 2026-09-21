@@ -307,6 +307,16 @@ ESPN_SPORT_ENDPOINTS = {
         ("basketball/mens-college-basketball", "NCAA Basketball")
     ]
 }
+@app.get("/")
+def read_root():
+    return {
+        "status": "online",
+        "service": "MicroPulse AI Engine",
+        "endpoints": {
+            "fixtures": "/api/v1/fixtures?target_date=2026-09-21&sport=Football",
+            "docs": "/docs"
+        }
+    }
 
 @app.get("/api/v1/fixtures", response_model=List[MatchSchema])
 def get_fixtures(
