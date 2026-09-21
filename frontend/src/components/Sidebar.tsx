@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { X, ChevronDown, ChevronUp, ChevronRight, Flame } from "lucide-react";
 
 interface SidebarProps {
@@ -6,17 +6,17 @@ interface SidebarProps {
   onClose: () => void;
   sportsList: string[];
   setActiveSport: (sport: string) => void;
-  setActiveTab: (tab: "Predictions" | "Odds" | "Accuracy" | "HotPicks") => void;
+  setActiveTab: (tab: "Predictions" | "HotPicks" | "Odds" | "Accuracy") => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+export const Sidebar = ({
   isOpen,
   onClose,
   sportsList,
   setActiveSport,
   setActiveTab,
-}) => {
-  const [openAccordion, setOpenAccordion] = useState<"Predictions" | "Odds" | "HotPicks" | null>("Predictions");
+}: SidebarProps) => {
+  const [openAccordion, setOpenAccordion] = useState<"Predictions" | "HotPicks" | "Odds" | null>("Predictions");
 
   return (
     <>
@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="divide-y divide-slate-100">
+            {/* Predictions Menu */}
             <div>
               <button onClick={() => setOpenAccordion(openAccordion === "Predictions" ? null : "Predictions")} className="w-full px-5 py-4 flex justify-between items-center text-sm font-extrabold text-slate-800">
                 <span>Predictions</span>
@@ -54,6 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
+            {/* Hot Picks Menu */}
             <div>
               <button onClick={() => setOpenAccordion(openAccordion === "HotPicks" ? null : "HotPicks")} className="w-full px-5 py-4 flex justify-between items-center text-sm font-extrabold text-slate-800">
                 <span className="flex items-center space-x-2">
@@ -66,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="bg-white py-1 pl-8 pr-4 space-y-1">
                   {sportsList.map((sport) => (
                     <button key={sport} onClick={() => { setActiveSport(sport); setActiveTab("HotPicks"); onClose(); }} className="w-full py-2 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex justify-between">
-                      <span>{sport} Hot Picks (90% Win Rate)</span>
+                      <span>{sport} Hot Picks (Top 25)</span>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                     </button>
                   ))}
@@ -74,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
+            {/* Odds Menu */}
             <div>
               <button onClick={() => setOpenAccordion(openAccordion === "Odds" ? null : "Odds")} className="w-full px-5 py-4 flex justify-between items-center text-sm font-extrabold text-slate-800">
                 <span>Odds</span>
