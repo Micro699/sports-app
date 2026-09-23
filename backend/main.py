@@ -52,118 +52,135 @@ class MatchSchema(BaseModel):
     aiSummary: str
     isWon: Optional[bool] = None
 
-# GENERIC MATCH STAGES TO REJECT AS LEAGUE NAMES
-GENERIC_STAGES = {
-    "group stage", "regular season", "1st round", "2nd round", "3rd round",
-    "round of 16", "quarter-finals", "semi-finals", "finals", "playoffs",
+# GENERIC TERMS AND STAGES TO PERMANENTLY REJECT
+GENERIC_REJECTS = {
+    "football", "soccer", "group stage", "regular season", "1st round", "2nd round", "3rd round",
+    "round of 16", "quarter-finals", "semi-finals", "finals", "playoffs", "play-offs",
     "preliminary round", "second round", "first round", "third round",
-    "regular-season", "group-stage", "torneo-clausura", "torneo-apertura"
+    "regular-season", "group-stage", "torneo-clausura", "torneo-apertura",
+    "second qualifying round", "first qualifying round", "third qualifying round",
+    "qualifying round", "qualifying", "stage 1a", "stage 1b", "stage 1", "stage 2",
+    "stage 3", "round 1", "round 2", "round 3", "league", "cup", "mens soccer", "womens soccer"
 }
 
-LEAGUE_MAPPING = {
+# DIRECT SLUG & MIDNAME MAPPINGS FOR FLASHSCORE PARITY
+ESPN_SLUG_MAP = {
+    "eng.1": "Premier League",
+    "eng.2": "Championship",
+    "eng.3": "League One",
+    "eng.4": "League Two",
+    "esp.1": "LaLiga",
+    "esp.2": "LaLiga 2",
+    "esp.copa_del_rey": "Copa del Rey",
+    "ita.1": "Serie A",
+    "ita.2": "Serie B",
+    "ger.1": "Bundesliga",
+    "fra.1": "Ligue 1",
+    "ned.1": "Eredivisie",
+    "por.1": "Liga Portugal",
+    "usa.1": "MLS",
+    "usa.ncaa.m.1": "NCAA College Soccer",
+    "usa.ncaa.w.1": "NCAA College Soccer (W)",
+    "per.1": "Peru - Liga 1",
+    "sui.1": "Swiss Super League",
+    "sui.cup": "Swiss Cup",
+    "mex.1": "Liga MX",
+    "rsa.1": "South African Premiership",
+    "sau.1": "Saudi Pro League",
+    "uefa.champions": "UEFA Champions League",
+    "uefa.europa": "UEFA Europa League",
+    "uefa.ecoconference": "UEFA Conference League",
+    "fifa.friendly": "Int. Friendly",
+    "fifa.world": "World Cup Qualifiers",
+    "caf.nations": "AFCON Qualifiers"
+}
+
+LEAGUE_TEXT_MAP = {
     "premier league": "Premier League",
     "english premier league": "Premier League",
     "championship": "Championship",
-    "english football league championship": "Championship",
-    "efl championship": "Championship",
-    "fa cup": "FA Cup",
-    "efl cup": "EFL Cup",
     "laliga": "LaLiga",
     "spanish laliga": "LaLiga",
     "la liga": "LaLiga",
     "copa del rey": "Copa del Rey",
     "serie a": "Serie A",
     "italian serie a": "Serie A",
-    "coppa italia": "Coppa Italia",
     "bundesliga": "Bundesliga",
-    "german bundesliga": "Bundesliga",
-    "dfb pokal": "DFB-Pokal",
     "ligue 1": "Ligue 1",
-    "french ligue 1": "Ligue 1",
-    "caf world cup": "WC Qualifiers (Africa)",
-    "afc world cup": "WC Qualifiers (Asia)",
-    "concacaf world cup": "WC Qualifiers (CONCACAF)",
-    "conmebol world cup": "WC Qualifiers (CONMEBOL)",
-    "uefa world cup": "WC Qualifiers (Europe)",
-    "world cup qualification": "World Cup Qualifiers",
-    "afcon qualification": "AFCON Qualifiers",
-    "international friendly": "Int. Friendly",
-    "womens international friendly": "Women's Int. Friendly",
     "eredivisie": "Eredivisie",
-    "primeira liga": "Liga Portugal",
     "liga portugal": "Liga Portugal",
     "saudi pro league": "Saudi Pro League",
     "south african premiership": "South African Premiership",
     "mls": "MLS",
     "liga mx": "Liga MX",
+    "ncaa": "NCAA College Soccer",
+    "liga 1": "Peru - Liga 1",
+    "swiss super league": "Swiss Super League",
     "uefa champions league": "UEFA Champions League",
     "uefa europa league": "UEFA Europa League",
     "uefa conference league": "UEFA Conference League"
 }
 
-def extract_true_competition_name(event: dict, default_label: str) -> str:
-    competitions = event.get("competitions", [{}])
-    comp_obj = competitions[0] if competitions else {}
-    
+def clean_title_case(text: str) -> str:
+    cleaned = re.sub(r'^\d{4}\s*', '', text.strip())
+    for prefix in ["Spanish ", "English ", "German ", "Italian ", "French ", "Dutch ", "Men's ", "Women's "]:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+    return cleaned.strip().title() if cleaned else text.title()
+
+def resolve_clean_league_name(event: dict, home_team: str, away_team: str, default_label: str) -> str:
+    """Extracts clean Flashscore tournament names, permanently eliminating generic stage labels."""
+    league_info = event.get("league", {}) or {}
+    comp_obj = event.get("competitions", [{}])[0] if event.get("competitions") else {}
+
+    # 1. Check ESPN Slug Mapping
+    slug = (league_info.get("slug") or "").lower()
+    if slug in ESPN_SLUG_MAP:
+        return ESPN_SLUG_MAP[slug]
+
+    # 2. Check Midsize Name & Abbreviation
+    mid_name = (league_info.get("midsizeName") or "").strip()
+    if mid_name and mid_name.lower() not in GENERIC_REJECTS:
+        return clean_title_case(mid_name)
+
+    abbr = (league_info.get("abbreviation") or "").strip()
+    if abbr and abbr.lower() not in GENERIC_REJECTS and len(abbr) >= 3:
+        return abbr.upper()
+
+    # 3. Check League Name against Text Mapping
+    name = (league_info.get("name") or "").strip()
+    if name and name.lower() not in GENERIC_REJECTS:
+        n_lower = name.lower()
+        for k, v in LEAGUE_TEXT_MAP.items():
+            if k in n_lower:
+                return v
+        return clean_title_case(name)
+
+    # 4. Check Notes Headline
     notes = comp_obj.get("notes", [])
     if notes and isinstance(notes, list) and len(notes) > 0:
         headline = notes[0].get("headline", "").strip()
         if headline:
             h_lower = headline.lower()
-            if "world cup" in h_lower and ("qualifi" in h_lower or "caf" in h_lower or "afc" in h_lower):
-                if "caf" in h_lower or "africa" in h_lower:
-                    return "WC Qualifiers (Africa)"
-                if "afc" in h_lower or "asia" in h_lower:
-                    return "WC Qualifiers (Asia)"
-                if "concacaf" in h_lower:
-                    return "WC Qualifiers (CONCACAF)"
-                if "conmebol" in h_lower:
-                    return "WC Qualifiers (CONMEBOL)"
-                if "uefa" in h_lower or "europe" in h_lower:
-                    return "WC Qualifiers (Europe)"
-                return "World Cup Qualifiers"
-            if "africa cup of nations" in h_lower or "afcon" in h_lower:
-                return "AFCON Qualifiers"
+            if "copa del rey" in h_lower: return "Copa del Rey"
+            if "world cup" in h_lower: return "World Cup Qualifiers"
+            if "afcon" in h_lower or "africa cup" in h_lower: return "AFCON Qualifiers"
+            if "ncaa" in h_lower or "college" in h_lower: return "NCAA College Soccer"
 
-    series_title = comp_obj.get("series", {}).get("title", "").strip()
-    if series_title and series_title.lower() not in GENERIC_STAGES:
-        return series_title
+    # 5. Fallback Team Inference
+    h_team, a_team = home_team.lower(), away_team.lower()
+    if any(x in h_team or x in a_team for x in ["hornets", "highlanders", "ucla", "stanford", "uc riverside", "sacramento"]):
+        return "NCAA College Soccer"
+    if any(x in h_team or x in a_team for x in ["real madrid", "real sociedad", "barcelona", "atletico"]):
+        return "LaLiga"
+    if any(x in h_team or x in a_team for x in ["cienciano", "adt", "universitario", "alianza lima"]):
+        return "Peru - Liga 1"
+    if any(x in h_team or x in a_team for x in ["zürich", "xamax", "basel", "young boys"]):
+        return "Swiss Super League"
+    if ("australia" in h_team and "brazil" in a_team) or ("national" in h_team):
+        return "Int. Friendly"
 
-    league_info = event.get("league", {}) or {}
-    league_name = league_info.get("name", "").strip()
-    if league_name and league_name.lower() not in GENERIC_STAGES:
-        return league_name
-
-    season_info = event.get("season", {}) or {}
-    season_name = season_info.get("displayName") or season_info.get("name") or ""
-    if season_name and season_name.lower() not in GENERIC_STAGES:
-        return season_name
-
-    return default_label
-
-def normalize_league_name(raw_league: str) -> str:
-    if not raw_league:
-        return "Top League"
-    
-    clean_lower = raw_league.strip().lower().replace("-", " ").replace("_", " ")
-    
-    for key, standard_name in LEAGUE_MAPPING.items():
-        if key in clean_lower:
-            return standard_name
-            
-    cleaned_str = re.sub(r'^\d{4}\s*', '', clean_lower)
-    cleaned_str = (
-        cleaned_str.replace("spanish ", "")
-                   .replace("english ", "")
-                   .replace("german ", "")
-                   .replace("italian ", "")
-                   .replace("french ", "")
-                   .replace("dutch ", "")
-                   .replace("men's ", "")
-                   .strip()
-    )
-    
-    return cleaned_str.title() if cleaned_str else raw_league.title()
+    return default_label if default_label.lower() not in GENERIC_REJECTS else "Top Leagues"
 
 def sanitize_team_name(team_name: str, league_name: str) -> str:
     clean_name = team_name.strip()
@@ -345,8 +362,37 @@ def get_fixtures(
                 for event in events:
                     event_id = event.get("id")
 
-                    raw_comp_name = extract_true_competition_name(event, default_league_label)
-                    league_name = normalize_league_name(raw_comp_name)
+                    competitions = event.get("competitions", [{}])[0]
+                    competitors = competitions.get("competitors", [])
+                    
+                    if len(competitors) < 2:
+                        continue
+
+                    c1, c2 = competitors[0], competitors[1]
+                    home_comp = c1 if c1.get("homeAway") == "home" else c2
+                    away_comp = c2 if c1.get("homeAway") == "home" else c1
+
+                    raw_home_team = home_comp.get("team", {}).get("displayName", "Home")
+                    home_logo = home_comp.get("team", {}).get("logo", DEFAULT_LOGO)
+                    home_score = int(home_comp.get("score", 0)) if home_comp.get("score") else 0
+                    
+                    raw_away_team = away_comp.get("team", {}).get("displayName", "Away")
+                    away_logo = away_comp.get("team", {}).get("logo", DEFAULT_LOGO)
+                    away_score = int(away_comp.get("score", 0)) if away_comp.get("score") else 0
+
+                    # Resolve competition name using our 4-tier pipeline
+                    league_name = resolve_clean_league_name(event, raw_home_team, raw_away_team, default_league_label)
+
+                    home_team = sanitize_team_name(raw_home_team, league_name)
+                    away_team = sanitize_team_name(raw_away_team, league_name)
+
+                    h_lower = home_team.lower().strip()
+                    a_lower = away_team.lower().strip()
+                    if h_lower in seen_teams_today or a_lower in seen_teams_today:
+                        continue
+                    
+                    seen_teams_today.add(h_lower)
+                    seen_teams_today.add(a_lower)
 
                     status_info = event.get("status", {}).get("type", {})
                     state = status_info.get("state", "pre")
@@ -368,35 +414,6 @@ def get_fixtures(
                         formatted_time = "FT"
                     else:
                         match_status = "UPCOMING"
-
-                    competitions = event.get("competitions", [{}])[0]
-                    competitors = competitions.get("competitors", [])
-                    
-                    if len(competitors) < 2:
-                        continue
-
-                    c1, c2 = competitors[0], competitors[1]
-                    home_comp = c1 if c1.get("homeAway") == "home" else c2
-                    away_comp = c2 if c1.get("homeAway") == "home" else c1
-
-                    raw_home_team = home_comp.get("team", {}).get("displayName", "Home")
-                    home_logo = home_comp.get("team", {}).get("logo", DEFAULT_LOGO)
-                    home_score = int(home_comp.get("score", 0)) if home_comp.get("score") else 0
-                    
-                    raw_away_team = away_comp.get("team", {}).get("displayName", "Away")
-                    away_logo = away_comp.get("team", {}).get("logo", DEFAULT_LOGO)
-                    away_score = int(away_comp.get("score", 0)) if away_comp.get("score") else 0
-
-                    home_team = sanitize_team_name(raw_home_team, league_name)
-                    away_team = sanitize_team_name(raw_away_team, league_name)
-
-                    h_lower = home_team.lower().strip()
-                    a_lower = away_team.lower().strip()
-                    if h_lower in seen_teams_today or a_lower in seen_teams_today:
-                        continue
-                    
-                    seen_teams_today.add(h_lower)
-                    seen_teams_today.add(a_lower)
 
                     ai = compute_unbiased_prediction(home_team, away_team, home_comp, away_comp, sport)
 
@@ -459,7 +476,7 @@ def get_fixtures(
 
     return matches
 
-# ROUTE HANDLER FOR FRONTEND ASSETS AND ROOT DOMAIN
+# FRONTEND ASSET & SPA CATCH-ALL MOUNT
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 if os.path.exists(frontend_dist):
