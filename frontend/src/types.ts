@@ -1,12 +1,3 @@
-export const DEFAULT_LOGO = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo.png";
-export const ITEMS_PER_PAGE = 10;
-
-// Runtime JavaScript object fallbacks (Prevents Vite strip-out errors)
-export const Match = {};
-export const Odds = {};
-export const AiProbabilities = {};
-export const AccuracyStats = {};
-
 export interface Odds {
   home: string;
   draw: string;
@@ -24,13 +15,14 @@ export interface AiProbabilities {
 export interface Match {
   id: string;
   sport: string;
+  country: string;
   league: string;
   dateTime: string;
   homeTeam: string;
   homeLogo: string;
   awayTeam: string;
   awayLogo: string;
-  status: string;
+  status: "UPCOMING" | "LIVE" | "FINISHED";
   homeScore: number;
   awayScore: number;
   isHot: boolean;
