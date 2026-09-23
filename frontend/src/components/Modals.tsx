@@ -1,6 +1,7 @@
 import React from "react";
 import { X, TrendingUp, CheckCircle2, XCircle } from "lucide-react";
-import { Match, AccuracyStats } from "../types";
+import type { Match, AccuracyStats } from "../types";
+
 
 interface PredictionModalProps {
   match: Match | null;
