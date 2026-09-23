@@ -206,7 +206,7 @@ def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: di
     away_xg, away_rec, away_form = extract_advanced_team_xg(away_comp, is_home=False)
 
     home_win, draw, away_win = 0.0, 0.0, 0.0
-    o25, btts = 0.0, 0.0
+    o05, o15, o25, o35, btts = 0.0, 0.0, 0.0, 0.0, 0.0
 
     for h in range(6):
         for a in range(6):
@@ -214,14 +214,26 @@ def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: di
             if h > a: home_win += p
             elif h == a: draw += p
             else: away_win += p
-            if (h + a) > 2.5: o25 += p
+            
+            total = h + a
+            if total > 0.5: o05 += p
+            if total > 1.5: o15 += p
+            if total > 2.5: o25 += p
+            if total > 3.5: o35 += p
             if h > 0 and a > 0: btts += p
 
     hw = max(5, round(home_win * 100))
     dr = max(2, round(draw * 100)) if sport == "Football" else 2
     aw = max(5, round(away_win * 100))
+    o05_p = round(o05 * 100)
+    o15_p = round(o15 * 100)
     o25_p = round(o25 * 100)
+    o35_p = round(o35 * 100)
+    u25_p = 100 - o25_p
+    u35_p = 100 - o35_p
     btts_p = round(btts * 100)
+
+    total_xg = home_xg + away_xg
 
     if sport == "Basketball":
         detail = f"{home_team} -3.5" if hw >= aw else f"{away_team} +3.5"
@@ -229,28 +241,35 @@ def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: di
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:
-        if hw >= 60 and (hw - aw) >= 22:
-            detail = f"{home_team} Straight Win"
-        elif aw >= 54 and (aw - hw) >= 14:
-            detail = f"{away_team} Straight Win"
-        elif o25_p >= 64:
+    else:  # Football Dynamic Market Engine
+        if total_xg >= 3.2 or o25_p >= 65:
             detail = "Over 2.5 Goals Scored"
+        elif o15_p >= 80:
+            detail = "Over 1.5 Goals Scored"
+        elif total_xg <= 1.6 or u25_p >= 65:
+            detail = "Under 2.5 Goals Scored"
+        elif u35_p >= 82:
+            detail = "Under 3.5 Goals Scored"
+        elif hw >= 60 and (hw - aw) >= 22:
+            detail = f"{home_team} Straight Win (1)"
+        elif aw >= 54 and (aw - hw) >= 14:
+            detail = f"{away_team} Straight Win (2)"
         elif btts_p >= 62:
             detail = "Both Teams to Score (BTTS)"
         elif aw > hw:
-            detail = f"{away_team} Win or Draw (X2)"
+            detail = f"{away_team} Win or Draw (2X)"
         elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
-            detail = "Over 1.5 Goals Scored"
+            detail = "Over 0.5 Goals Scored"
 
-    max_confidence = max(hw, aw, o25_p if sport == "Football" else 0)
+    max_confidence = max(hw, aw, o25_p, o15_p if "1.5" in detail else 0)
 
     summary = (
-        f"Multi-Variable Analysis: {home_team} (Rec: {home_rec}, Form: {home_form}, xG: {home_xg}) vs "
-        f"{away_team} (Rec: {away_rec}, Form: {away_form}, xG: {away_xg}). "
-        f"Model probabilities: Home Win {hw}%, Draw {dr}%, Away Win {aw}%. Pick: {detail} ({max_confidence}% confidence)."
+        f"Multi-Variable Stats & Form Breakdown: {home_team} (Rec: {home_rec}, Form: {home_form}, xG: {home_xg}) vs "
+        f"{away_team} (Rec: {away_rec}, Form: {away_form}, xG: {away_xg}). Combined expected goals: {total_xg:.2f}. "
+        f"Model probabilities: Home Win {hw}%, Draw {dr}%, Away Win {aw}%, Over 1.5 ({o15_p}%), Over 2.5 ({o25_p}%). "
+        f"Recommended market pick: {detail} ({max_confidence}% confidence)."
     )
 
     return {
@@ -271,21 +290,29 @@ def evaluate_prediction_outcome(detail: str, home_team: str, away_team: str, hom
     detail_lower = detail.lower()
     total_goals = home_score + away_score
     
-    if "over 2.5" in detail_lower:
-        return total_goals > 2.5
+    if "over 0.5" in detail_lower:
+        return total_goals > 0
+    elif "over 1.5" in detail_lower:
+        return total_goals > 1
+    elif "over 2.5" in detail_lower:
+        return total_goals > 2
+    elif "over 3.5" in detail_lower:
+        return total_goals > 3
     elif "under 2.5" in detail_lower:
-        return total_goals < 2.5
+        return total_goals < 3
+    elif "under 3.5" in detail_lower:
+        return total_goals < 4
     elif "btts" in detail_lower or "both teams to score" in detail_lower:
         return home_score > 0 and away_score > 0
-    elif "win or draw" in detail_lower or "1x" in detail_lower or "x2" in detail_lower:
-        if home_team.lower() in detail_lower:
+    elif "win or draw" in detail_lower or "1x" in detail_lower or "2x" in detail_lower:
+        if home_team.lower() in detail_lower or "(1x)" in detail_lower:
             return home_score >= away_score
         else:
             return away_score >= home_score
-    elif "win" in detail_lower:
-        if home_team.lower() in detail_lower:
+    elif "straight win" in detail_lower or "win" in detail_lower:
+        if home_team.lower() in detail_lower or "(1)" in detail_lower:
             return home_score > away_score
-        elif away_team.lower() in detail_lower:
+        elif away_team.lower() in detail_lower or "(2)" in detail_lower:
             return away_score > home_score
     
     return (home_score > away_score) if home_team.lower() in detail_lower else (away_score > home_score)
