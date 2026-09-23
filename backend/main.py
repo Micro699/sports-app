@@ -51,69 +51,159 @@ class MatchSchema(BaseModel):
     aiSummary: str
     isWon: Optional[bool] = None
 
-# STANDARD BETTING PLATFORM LEAGUE NAME DICTIONARY
+import re
+
+# COMPREHENSIVE GLOBAL LEAGUE DICTIONARY
 LEAGUE_MAPPING = {
+    # --- ENGLAND ---
     "premier league": "Premier League",
     "english premier league": "Premier League",
-    "laliga": "LaLiga",
-    "spanish laliga": "LaLiga",
-    "la liga": "LaLiga",
-    "bundesliga": "Bundesliga",
-    "german bundesliga": "Bundesliga",
-    "serie a": "Serie A",
-    "italian serie a": "Serie A",
-    "ligue 1": "Ligue 1",
-    "french ligue 1": "Ligue 1",
     "championship": "Championship",
     "english football league championship": "Championship",
     "efl championship": "Championship",
+    "league one": "EFL League One",
+    "english league one": "EFL League One",
+    "league two": "EFL League Two",
+    "english league two": "EFL League Two",
+    "fa cup": "FA Cup",
+    "efl cup": "EFL Cup",
+    "carabao cup": "EFL Cup",
+
+    # --- SPAIN ---
+    "laliga": "LaLiga",
+    "spanish laliga": "LaLiga",
+    "la liga": "LaLiga",
+    "laliga 2": "LaLiga2",
+    "segunda division": "LaLiga2",
+    "copa del rey": "Copa del Rey",
+
+    # --- ITALY ---
+    "serie a": "Serie A",
+    "italian serie a": "Serie A",
+    "serie b": "Serie B",
+    "italian serie b": "Serie B",
+    "coppa italia": "Coppa Italia",
+
+    # --- GERMANY ---
+    "bundesliga": "Bundesliga",
+    "german bundesliga": "Bundesliga",
+    "2. bundesliga": "2. Bundesliga",
+    "dfb pokal": "DFB-Pokal",
+
+    # --- FRANCE ---
+    "ligue 1": "Ligue 1",
+    "french ligue 1": "Ligue 1",
+    "ligue 2": "Ligue 2",
+    "coupe de france": "Coupe de France",
+
+    # --- OTHER TOP EUROPEAN LEAGUES ---
     "eredivisie": "Eredivisie",
     "dutch eredivisie": "Eredivisie",
+    "primeira liga": "Liga Portugal",
     "liga portugal": "Liga Portugal",
     "portuguese primeira liga": "Liga Portugal",
-    "primeira liga": "Liga Portugal",
-    "saudi pro league": "Saudi Pro League",
-    "saudi professional league": "Saudi Pro League",
+    "scottish premiership": "Scottish Premiership",
+    "scottish premier league": "Scottish Premiership",
+    "belgian pro league": "Belgian Pro League",
+    "jupiler pro league": "Belgian Pro League",
+    "swiss super league": "Swiss Super League",
+    "turkish super lig": "Süper Lig",
+    "super lig": "Süper Lig",
+    "austrian bundesliga": "Austrian Bundesliga",
+    "greek super league": "Greek Super League",
+    "allsvenskan": "Allsvenskan",
+    "eliteserien": "Eliteserien",
+    "danish superliga": "Superligaen",
+    "superligaen": "Superligaen",
+
+    # --- SOUTH & NORTH AMERICA ---
     "mls": "MLS",
     "major league soccer": "MLS",
     "liga mx": "Liga MX",
     "mexican liga bbva mx": "Liga MX",
+    "brasileiro serie a": "Brasileiro Série A",
+    "brasileiro serie b": "Brasileiro Série B",
+    "argentine primera division": "Argentine Primera",
+    "liga profesional": "Argentine Primera",
+    "torneo clausura": "Clausura",
+    "torneo apertura": "Apertura",
+    "conmebol libertadores": "CONMEBOL Libertadores",
+    "copa libertadores": "CONMEBOL Libertadores",
+    "conmebol sudamericana": "CONMEBOL Sudamericana",
+
+    # --- ASIA, AFRICA & REST OF WORLD ---
+    "saudi pro league": "Saudi Pro League",
+    "saudi professional league": "Saudi Pro League",
+    "south african premiership": "South African Premiership",
+    "psl": "South African Premiership",
+    "k league 1": "K-League 1",
+    "k-league 1": "K-League 1",
+    "korean k league 1": "K-League 1",
+    "j1 league": "J1 League",
+    "japanese j1 league": "J1 League",
+    "a-league": "A-League",
+    "australian a-league": "A-League",
+    "indian super league": "Indian Super League",
+
+    # --- UEFA & INTERNATIONAL TOURNAMENTS ---
     "uefa champions league": "UEFA Champions League",
     "uefa europa league": "UEFA Europa League",
     "uefa conference league": "UEFA Conference League",
     "uefa europa conference league": "UEFA Conference League",
-    "africa cup of nations qualification": "Africa Cup of Nations Qualification",
-    "afcon qualification": "Africa Cup of Nations Qualification",
-    "conmebol libertadores": "CONMEBOL Libertadores",
-    "copa libertadores": "CONMEBOL Libertadores",
-    "k-league 1": "K-League 1",
-    "k league 1": "K-League 1",
-    "korean k league 1": "K-League 1",
+    "uefa nations league": "UEFA Nations League",
+    "africa cup of nations qualification": "AFCON Qualification",
+    "afcon qualification": "AFCON Qualification",
+    "world cup qualification": "World Cup Qualifiers",
+    "international friendly": "Int. Friendly",
+    "womens international friendly": "Women's Int. Friendly",
+
+    # --- WOMEN'S LEAGUES ---
+    "england womens super league": "Women's Super League",
+    "wsl": "Women's Super League",
+    "spain liga f": "Liga F",
+    "liga f": "Liga F",
+    "usa nwsl": "NWSL",
+    "nwsl": "NWSL",
+    "uefa womens champions league": "UWCL",
+    "uwcl": "UWCL",
+
+    # --- OTHER SPORTS ---
     "nba": "NBA",
     "wnba": "WNBA",
-    "ncaa basketball": "NCAA Basketball"
+    "ncaa basketball": "NCAA Basketball",
+    "mens college basketball": "NCAA Basketball",
+    "atp": "ATP Tennis",
+    "wta": "WTA Tennis",
+    "rugby union": "Rugby Union"
 }
 
 def normalize_league_name(raw_league: str) -> str:
+    """Normalizes any ESPN league string into a clean, human-readable title."""
     if not raw_league:
         return "Top League"
     
-    clean_lower = raw_league.strip().lower()
+    # Clean hyphens, underscores, and extra spaces
+    clean_lower = raw_league.strip().lower().replace("-", " ").replace("_", " ")
+    
+    # 1. Exact or partial dictionary match
     for key, standard_name in LEAGUE_MAPPING.items():
         if key in clean_lower:
             return standard_name
             
+    # 2. Fallback parser for unmapped leagues (e.g., '2026-south-african-premiership' or 'second-preliminary-round')
+    cleaned_str = re.sub(r'^\d{4}\s*', '', clean_lower)  # Strip leading 4-digit year
     cleaned_str = (
-        raw_league.replace("Spanish ", "")
-                  .replace("English ", "")
-                  .replace("German ", "")
-                  .replace("Italian ", "")
-                  .replace("French ", "")
-                  .replace("Dutch ", "")
-                  .replace("Men's ", "")
-                  .strip()
+        cleaned_str.replace("spanish ", "")
+                   .replace("english ", "")
+                   .replace("german ", "")
+                   .replace("italian ", "")
+                   .replace("french ", "")
+                   .replace("dutch ", "")
+                   .replace("men's ", "")
+                   .strip()
     )
-    return cleaned_str if cleaned_str else raw_league
+    
+    return cleaned_str.title() if cleaned_str else raw_league.title()
 
 def sanitize_team_name(team_name: str, league_name: str) -> str:
     clean_name = team_name.strip()
