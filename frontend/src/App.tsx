@@ -1,68 +1,20 @@
 import { useState, useEffect } from "react";
 import { 
-  Menu, 
-  X, 
   ChevronLeft, 
   ChevronRight, 
   Flame, 
-  Globe, 
-  TrendingUp, 
   RefreshCw,
   Award,
-  Search,
   Calendar,
   Radio,
   Zap
 } from "lucide-react";
+import type { Match, AccuracyStats } from "./types";
+import { ITEMS_PER_PAGE } from "./types";
+import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
-
-interface Odds {
-  home: string;
-  draw: string;
-  away: string;
-}
-
-interface AiProbabilities {
-  homeWin: number;
-  draw: number;
-  awayWin: number;
-  over25: number;
-  btts: number;
-}
-
-interface Match {
-  id: string;
-  sport: string;
-  league: string;
-  dateTime: string;
-  homeTeam: string;
-  homeLogo: string;
-  awayTeam: string;
-  awayLogo: string;
-  status: "UPCOMING" | "LIVE" | "FINISHED";
-  homeScore: number;
-  awayScore: number;
-  isHot: boolean;
-  predictionTitle: string;
-  predictionDetail: string;
-  odds: Odds;
-  aiProbabilities: AiProbabilities;
-  aiSummary: string;
-  isWon?: boolean | null;
-}
-
-interface AccuracyStats {
-  totalVerified: number;
-  totalWon: number;
-  totalLost: number;
-  accuracyPercentage: number;
-  over25Accuracy: number;
-  straightWinsAccuracy: number;
-  bttsAccuracy: number;
-}
-
-const DEFAULT_LOGO = "https://a.espncdn.com/combiner/i?img=/i/teamlogos/default-team-logo.png";
-const ITEMS_PER_PAGE = 10;
+import { MatchCard } from "./components/MatchCard";
+import { PredictionModal, VerifiedModal } from "./components/Modals";
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -71,8 +23,8 @@ export default function App() {
   const [customDate, setCustomDate] = useState("");
   const [selectedLeague, setSelectedLeague] = useState("All");
   const [activeTab, setActiveTab] = useState<"Predictions" | "HotPicks" | "Odds" | "Accuracy">("Predictions");
+  
   const [selectedMatchModal, setSelectedMatchModal] = useState<Match | null>(null);
-
   const [verifiedModalType, setVerifiedModalType] = useState<"WON" | "LOST" | null>(null);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -134,23 +86,12 @@ export default function App() {
   }, [activeSport, activeDateTab, customDate]);
 
   const liveCount = allMatches.filter((m) => m.status === "LIVE").length;
-
-  // Dynamically extract unique leagues present in fetched matches
   const availableLeagues = ["All", ...Array.from(new Set(allMatches.map((m) => m.league))).filter(Boolean)];
 
   let filteredMatches = allMatches.filter((match) => {
-    if (match.status === "FINISHED") {
-      return false;
-    }
-
-    if (activeDateTab === "LIVE" && match.status !== "LIVE") {
-      return false;
-    }
-
-    // Dynamic League Filter Match
-    if (selectedLeague !== "All" && match.league !== selectedLeague) {
-      return false;
-    }
+    if (match.status === "FINISHED") return false;
+    if (activeDateTab === "LIVE" && match.status !== "LIVE") return false;
+    if (selectedLeague !== "All" && match.league !== selectedLeague) return false;
 
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
@@ -180,7 +121,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 pb-12 font-sans relative overflow-x-hidden">
-      
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -189,90 +129,22 @@ export default function App() {
         setActiveTab={setActiveTab} 
       />
 
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-1 text-slate-800 hover:bg-slate-100 rounded-lg">
-              <Menu className="w-6 h-6" />
-            </button>
-            <span className="text-lg font-extrabold text-slate-900 flex items-center space-x-1">
-              <span className="text-orange-600 font-extrabold">★</span>
-              <span>Micro<span className="text-orange-600">Pulse</span></span>
-            </span>
-          </div>
+      <Header
+        isSidebarOpen={isSidebarOpen}
+        setIsSidebarOpen={setIsSidebarOpen}
+        isSearchOpen={isSearchOpen}
+        setIsSearchOpen={setIsSearchOpen}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        activeDateTab={activeDateTab}
+        setActiveDateTab={setActiveDateTab}
+        setCustomDate={setCustomDate}
+        liveCount={liveCount}
+      />
 
-          <div className="flex items-center space-x-2.5">
-            <button 
-              onClick={() => {
-                setIsSearchOpen(!isSearchOpen);
-                if (isSearchOpen) setSearchQuery("");
-              }} 
-              className={`p-1.5 rounded-lg transition ${isSearchOpen ? "bg-orange-100 text-orange-600" : "text-slate-700 hover:bg-slate-100"}`}
-            >
-              <Search className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={() => { setActiveDateTab("LIVE"); setCustomDate(""); }}
-              className={`px-2.5 py-1 rounded-lg border flex items-center space-x-1.5 transition text-xs font-black ${
-                activeDateTab === "LIVE"
-                  ? "bg-rose-50 border-rose-500 text-rose-600 shadow-xs"
-                  : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-              </span>
-              <span>LIVE</span>
-              {liveCount > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                  activeDateTab === "LIVE" ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-700"
-                }`}>
-                  {liveCount}
-                </span>
-              )}
-            </button>
-
-            <Globe className="w-4 h-4 text-slate-600" />
-          </div>
-        </div>
-
-        {isSearchOpen && (
-          <div className="mt-3 pt-2 border-t border-slate-100 flex items-center space-x-2">
-            <div className="relative w-full">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Search team or league..."
-                className="w-full bg-slate-100 text-slate-900 text-xs rounded-xl pl-9 pr-8 py-2 border border-slate-200 focus:outline-none focus:border-orange-500"
-                autoFocus
-              />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery("")} 
-                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </header>
-
-      {/* Main Container */}
       <div className="max-w-md mx-auto space-y-4 pt-3 px-3">
-        
         {/* Filters Card */}
         <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-xs space-y-3">
-          
           {/* Sports Header */}
           <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 pb-2 text-xs font-bold">
             {sportsList.map((sport) => (
@@ -335,7 +207,6 @@ export default function App() {
               </button>
             ))}
           </div>
-
         </div>
 
         {/* View Tabs Bar */}
@@ -438,68 +309,12 @@ export default function App() {
           </div>
         ) : (
           currentMatches.map((match) => (
-            <div key={match.id} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
-              
-              {/* Badges */}
-              {match.status === "LIVE" ? (
-                <div className="absolute top-0 right-0 bg-rose-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-1 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-                  <span>LIVE</span>
-                </div>
-              ) : match.isHot ? (
-                <div className="absolute top-0 right-0 bg-orange-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-bl-lg flex items-center space-x-0.5">
-                  <span>HOT</span>
-                  <Flame className="w-3 h-3 text-amber-300" />
-                </div>
-              ) : null}
-
-              <div className="text-center pt-3 pb-1 px-4">
-                <div className="text-xs font-extrabold text-slate-900">{match.dateTime}</div>
-                <div className="text-[11px] font-medium text-slate-500">{match.league}</div>
-              </div>
-
-              {/* Match Teams & Live Score */}
-              <div className="flex items-center justify-center space-x-3 px-4 py-2">
-                <div className="flex items-center space-x-2 text-right justify-end w-2/5">
-                  <span className="font-extrabold text-xs text-slate-900 leading-tight">{match.homeTeam}</span>
-                  <img src={match.homeLogo} alt={match.homeTeam} className="w-7 h-7 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_LOGO; }} />
-                </div>
-
-                <div className="w-1/5 text-center">
-                  {match.status === "LIVE" ? (
-                    <span className="text-xs font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                      {match.homeScore} - {match.awayScore}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-300 font-bold">VS</span>
-                  )}
-                </div>
-
-                <div className="flex items-center space-x-2 text-left justify-start w-2/5">
-                  <img src={match.awayLogo} alt={match.awayTeam} className="w-7 h-7 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_LOGO; }} />
-                  <span className="font-extrabold text-xs text-slate-900 leading-tight">{match.awayTeam}</span>
-                </div>
-              </div>
-
-              {activeTab === "Odds" ? (
-                <div className="grid grid-cols-3 gap-2 px-4 py-2 text-center text-xs">
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-slate-400 text-[10px] block">1</span><span className="font-bold text-slate-900">{match.odds?.home || "1.90"}</span></div>
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-slate-400 text-[10px] block">X</span><span className="font-bold text-slate-900">{match.odds?.draw || "3.40"}</span></div>
-                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-slate-400 text-[10px] block">2</span><span className="font-bold text-slate-900">{match.odds?.away || "3.80"}</span></div>
-                </div>
-              ) : (
-                <div className="mx-4 my-2 bg-slate-50 border border-slate-200 rounded-xl p-3 text-center space-y-1">
-                  <div className="text-[11px] text-slate-500 font-medium">{match.predictionTitle}</div>
-                  <div className="text-xs font-black text-slate-900">{match.predictionDetail}</div>
-                </div>
-              )}
-
-              <div className="p-3 bg-slate-50/50 border-t border-slate-100 flex justify-center">
-                <button onClick={() => setSelectedMatchModal(match)} className="w-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs py-2.5 rounded-full shadow-xs">
-                  GET FULL AI PREDICTION
-                </button>
-              </div>
-            </div>
+            <MatchCard
+              key={match.id}
+              match={match}
+              activeTab={activeTab}
+              onSelectMatch={(m) => setSelectedMatchModal(m)}
+            />
           ))
         )}
 
@@ -529,56 +344,20 @@ export default function App() {
             </button>
           </div>
         )}
-
       </div>
 
-      {/* Prediction Breakdown Modal */}
-      {selectedMatchModal && (
-        <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="font-black text-sm text-slate-900">{selectedMatchModal.homeTeam} vs {selectedMatchModal.awayTeam}</h3>
-                <p className="text-[10px] text-slate-500">{selectedMatchModal.league}</p>
-              </div>
-              <button onClick={() => setSelectedMatchModal(null)} className="p-1 text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
-            </div>
+      {/* Modals */}
+      <PredictionModal
+        match={selectedMatchModal}
+        onClose={() => setSelectedMatchModal(null)}
+      />
 
-            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
-              <div className="flex items-center space-x-1.5 text-amber-800 font-bold text-xs">
-                <TrendingUp className="w-4 h-4" />
-                <span>AI Analytical Breakdown</span>
-              </div>
-              <p className="text-[11px] text-amber-950 leading-relaxed">{selectedMatchModal.aiSummary}</p>
-            </div>
-
-            <button onClick={() => setSelectedMatchModal(null)} className="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl">
-              Close Breakdown
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Verified Won / Lost Modal */}
-      {verifiedModalType && (
-        <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <span className="font-extrabold text-sm text-slate-900">
-                Verified {verifiedModalType} Picks
-              </span>
-              <button onClick={() => setVerifiedModalType(null)} className="p-1 text-slate-400 hover:text-slate-700">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-600">Showing verified match outcomes.</p>
-            <button onClick={() => setVerifiedModalType(null)} className="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl">
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
+      <VerifiedModal
+        type={verifiedModalType}
+        onClose={() => setVerifiedModalType(null)}
+        allMatches={allMatches}
+        stats={accuracyStats}
+      />
     </div>
   );
 }
