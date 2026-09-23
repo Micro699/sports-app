@@ -1,15 +1,13 @@
 import math
-import os
+import re
 import requests
 from datetime import datetime
 from typing import List, Optional, Tuple
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-app = FastAPI(title="MicroPulse Advanced Momentum & Form AI Engine")
+app = FastAPI(title="MicroPulse Unbiased Multi-Sport AI Engine")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,9 +49,14 @@ class MatchSchema(BaseModel):
     aiSummary: str
     isWon: Optional[bool] = None
 
-import re
+# GENERIC MATCH STAGES TO REJECT AS LEAGUE NAMES
+GENERIC_STAGES = {
+    "group stage", "regular season", "1st round", "2nd round", "3rd round",
+    "round of 16", "quarter-finals", "semi-finals", "finals", "playoffs",
+    "preliminary round", "second round", "first round", "third round",
+    "regular-season", "group-stage", "torneo-clausura", "torneo-apertura"
+}
 
-# COMPREHENSIVE GLOBAL LEAGUE DICTIONARY
 LEAGUE_MAPPING = {
     # --- ENGLAND ---
     "premier league": "Premier League",
@@ -61,137 +64,110 @@ LEAGUE_MAPPING = {
     "championship": "Championship",
     "english football league championship": "Championship",
     "efl championship": "Championship",
-    "league one": "EFL League One",
-    "english league one": "EFL League One",
-    "league two": "EFL League Two",
-    "english league two": "EFL League Two",
     "fa cup": "FA Cup",
     "efl cup": "EFL Cup",
-    "carabao cup": "EFL Cup",
 
     # --- SPAIN ---
     "laliga": "LaLiga",
     "spanish laliga": "LaLiga",
     "la liga": "LaLiga",
-    "laliga 2": "LaLiga2",
-    "segunda division": "LaLiga2",
     "copa del rey": "Copa del Rey",
 
     # --- ITALY ---
     "serie a": "Serie A",
     "italian serie a": "Serie A",
-    "serie b": "Serie B",
-    "italian serie b": "Serie B",
     "coppa italia": "Coppa Italia",
 
     # --- GERMANY ---
     "bundesliga": "Bundesliga",
     "german bundesliga": "Bundesliga",
-    "2. bundesliga": "2. Bundesliga",
     "dfb pokal": "DFB-Pokal",
 
     # --- FRANCE ---
     "ligue 1": "Ligue 1",
     "french ligue 1": "Ligue 1",
-    "ligue 2": "Ligue 2",
-    "coupe de france": "Coupe de France",
 
-    # --- OTHER TOP EUROPEAN LEAGUES ---
-    "eredivisie": "Eredivisie",
-    "dutch eredivisie": "Eredivisie",
-    "primeira liga": "Liga Portugal",
-    "liga portugal": "Liga Portugal",
-    "portuguese primeira liga": "Liga Portugal",
-    "scottish premiership": "Scottish Premiership",
-    "scottish premier league": "Scottish Premiership",
-    "belgian pro league": "Belgian Pro League",
-    "jupiler pro league": "Belgian Pro League",
-    "swiss super league": "Swiss Super League",
-    "turkish super lig": "Süper Lig",
-    "super lig": "Süper Lig",
-    "austrian bundesliga": "Austrian Bundesliga",
-    "greek super league": "Greek Super League",
-    "allsvenskan": "Allsvenskan",
-    "eliteserien": "Eliteserien",
-    "danish superliga": "Superligaen",
-    "superligaen": "Superligaen",
-
-    # --- SOUTH & NORTH AMERICA ---
-    "mls": "MLS",
-    "major league soccer": "MLS",
-    "liga mx": "Liga MX",
-    "mexican liga bbva mx": "Liga MX",
-    "brasileiro serie a": "Brasileiro Série A",
-    "brasileiro serie b": "Brasileiro Série B",
-    "argentine primera division": "Argentine Primera",
-    "liga profesional": "Argentine Primera",
-    "torneo clausura": "Clausura",
-    "torneo apertura": "Apertura",
-    "conmebol libertadores": "CONMEBOL Libertadores",
-    "copa libertadores": "CONMEBOL Libertadores",
-    "conmebol sudamericana": "CONMEBOL Sudamericana",
-
-    # --- ASIA, AFRICA & REST OF WORLD ---
-    "saudi pro league": "Saudi Pro League",
-    "saudi professional league": "Saudi Pro League",
-    "south african premiership": "South African Premiership",
-    "psl": "South African Premiership",
-    "k league 1": "K-League 1",
-    "k-league 1": "K-League 1",
-    "korean k league 1": "K-League 1",
-    "j1 league": "J1 League",
-    "japanese j1 league": "J1 League",
-    "a-league": "A-League",
-    "australian a-league": "A-League",
-    "indian super league": "Indian Super League",
-
-    # --- UEFA & INTERNATIONAL TOURNAMENTS ---
-    "uefa champions league": "UEFA Champions League",
-    "uefa europa league": "UEFA Europa League",
-    "uefa conference league": "UEFA Conference League",
-    "uefa europa conference league": "UEFA Conference League",
-    "uefa nations league": "UEFA Nations League",
-    "africa cup of nations qualification": "AFCON Qualification",
-    "afcon qualification": "AFCON Qualification",
+    # --- INTERNATIONAL QUALIFIERS ---
+    "caf world cup": "WC Qualifiers (Africa)",
+    "afc world cup": "WC Qualifiers (Asia)",
+    "concacaf world cup": "WC Qualifiers (CONCACAF)",
+    "conmebol world cup": "WC Qualifiers (CONMEBOL)",
+    "uefa world cup": "WC Qualifiers (Europe)",
     "world cup qualification": "World Cup Qualifiers",
+    "afcon qualification": "AFCON Qualifiers",
     "international friendly": "Int. Friendly",
     "womens international friendly": "Women's Int. Friendly",
 
-    # --- WOMEN'S LEAGUES ---
-    "england womens super league": "Women's Super League",
-    "wsl": "Women's Super League",
-    "spain liga f": "Liga F",
-    "liga f": "Liga F",
-    "usa nwsl": "NWSL",
-    "nwsl": "NWSL",
-    "uefa womens champions league": "UWCL",
-    "uwcl": "UWCL",
-
-    # --- OTHER SPORTS ---
-    "nba": "NBA",
-    "wnba": "WNBA",
-    "ncaa basketball": "NCAA Basketball",
-    "mens college basketball": "NCAA Basketball",
-    "atp": "ATP Tennis",
-    "wta": "WTA Tennis",
-    "rugby union": "Rugby Union"
+    # --- TOP LEAGUES & CUPS ---
+    "eredivisie": "Eredivisie",
+    "primeira liga": "Liga Portugal",
+    "liga portugal": "Liga Portugal",
+    "saudi pro league": "Saudi Pro League",
+    "south african premiership": "South African Premiership",
+    "mls": "MLS",
+    "liga mx": "Liga MX",
+    "uefa champions league": "UEFA Champions League",
+    "uefa europa league": "UEFA Europa League",
+    "uefa conference league": "UEFA Conference League"
 }
 
+def extract_true_competition_name(event: dict, default_label: str) -> str:
+    """Rejects generic stage names like 'Group Stage' and extracts true Flashscore-style tournament titles."""
+    competitions = event.get("competitions", [{}])
+    comp_obj = competitions[0] if competitions else {}
+    
+    # 1. Check event notes headline (e.g. '2026 FIFA World Cup Qualifiers, CAF')
+    notes = comp_obj.get("notes", [])
+    if notes and isinstance(notes, list) and len(notes) > 0:
+        headline = notes[0].get("headline", "").strip()
+        if headline:
+            h_lower = headline.lower()
+            if "world cup" in h_lower and ("qualifi" in h_lower or "caf" in h_lower or "afc" in h_lower):
+                if "caf" in h_lower or "africa" in h_lower:
+                    return "WC Qualifiers (Africa)"
+                if "afc" in h_lower or "asia" in h_lower:
+                    return "WC Qualifiers (Asia)"
+                if "concacaf" in h_lower:
+                    return "WC Qualifiers (CONCACAF)"
+                if "conmebol" in h_lower:
+                    return "WC Qualifiers (CONMEBOL)"
+                if "uefa" in h_lower or "europe" in h_lower:
+                    return "WC Qualifiers (Europe)"
+                return "World Cup Qualifiers"
+            if "africa cup of nations" in h_lower or "afcon" in h_lower:
+                return "AFCON Qualifiers"
+
+    # 2. Check competition series or tournament name
+    series_title = comp_obj.get("series", {}).get("title", "").strip()
+    if series_title and series_title.lower() not in GENERIC_STAGES:
+        return series_title
+
+    # 3. Check event league name
+    league_info = event.get("league", {}) or {}
+    league_name = league_info.get("name", "").strip()
+    if league_name and league_name.lower() not in GENERIC_STAGES:
+        return league_name
+
+    # 4. Check season displayName
+    season_info = event.get("season", {}) or {}
+    season_name = season_info.get("displayName") or season_info.get("name") or ""
+    if season_name and season_name.lower() not in GENERIC_STAGES:
+        return season_name
+
+    return default_label
+
 def normalize_league_name(raw_league: str) -> str:
-    """Normalizes any ESPN league string into a clean, human-readable title."""
+    """Standardizes parsed league text into clean, human-readable filter titles."""
     if not raw_league:
         return "Top League"
     
-    # Clean hyphens, underscores, and extra spaces
     clean_lower = raw_league.strip().lower().replace("-", " ").replace("_", " ")
     
-    # 1. Exact or partial dictionary match
     for key, standard_name in LEAGUE_MAPPING.items():
         if key in clean_lower:
             return standard_name
             
-    # 2. Fallback parser for unmapped leagues (e.g., '2026-south-african-premiership' or 'second-preliminary-round')
-    cleaned_str = re.sub(r'^\d{4}\s*', '', clean_lower)  # Strip leading 4-digit year
+    cleaned_str = re.sub(r'^\d{4}\s*', '', clean_lower)
     cleaned_str = (
         cleaned_str.replace("spanish ", "")
                    .replace("english ", "")
@@ -229,43 +205,12 @@ def sanitize_team_name(team_name: str, league_name: str) -> str:
             
     return clean_name
 
-def calculate_recent_form_multiplier(comp: dict) -> Tuple[float, str]:
-    form_str = comp.get("form", "")
-    if not form_str:
-        records = comp.get("records", [])
-        for r in records:
-            if r.get("type") == "lastfive" or "last" in r.get("name", "").lower():
-                form_str = r.get("summary", "")
-                break
-
-    clean_form = form_str.replace("-", "").strip().upper()
-    if not clean_form:
-        return 1.0, "N/A"
-
-    recent_5 = clean_form[-5:]
-    weights = [1.0, 1.2, 1.4, 1.6, 1.8]
-    weighted_pts = 0.0
-    max_pts = 0.0
-
-    for idx, result in enumerate(recent_5):
-        w = weights[idx] if idx < len(weights) else 1.0
-        max_pts += (3.0 * w)
-        if result == "W":
-            weighted_pts += (3.0 * w)
-        elif result == "D":
-            weighted_pts += (1.0 * w)
-
-    form_ratio = (weighted_pts / max_pts) if max_pts > 0 else 0.5
-    multiplier = 0.65 + (form_ratio * 0.70)
-    return round(multiplier, 2), recent_5
-
-def extract_advanced_team_xg(comp: dict, is_home: bool) -> Tuple[float, str, str]:
+def extract_real_team_stats(comp: dict, is_home: bool) -> Tuple[float, str]:
     records = comp.get("records", [])
     summary = ""
+    
     if records:
         summary = records[0].get("summary", "") or records[0].get("displayValue", "")
-
-    form_mult, form_display = calculate_recent_form_multiplier(comp)
 
     if summary and "-" in summary:
         try:
@@ -278,25 +223,24 @@ def extract_advanced_team_xg(comp: dict, is_home: bool) -> Tuple[float, str, str
             win_rate = wins / total_games
             loss_rate = losses / total_games
             
-            season_xg = 0.85 + (win_rate * 1.80) - (loss_rate * 0.45)
-            blended_xg = (season_xg * 0.50) + (season_xg * form_mult * 0.50) + (0.05 if is_home else 0.0)
-            record_str = f"{wins}W-{draws}D-{losses}L"
-            return round(max(0.5, min(3.8, blended_xg)), 2), record_str, form_display
+            base_xg = 0.85 + (win_rate * 1.85) - (loss_rate * 0.45) + (0.10 if is_home else 0.0)
+            formatted_record = f"{wins}W-{draws}D-{losses}L"
+            return round(max(0.5, min(3.8, base_xg)), 2), formatted_record
         except Exception:
             pass
             
-    fallback_xg = (1.40 if is_home else 1.35) * form_mult
-    return round(fallback_xg, 2), "Form N/A", form_display
+    fallback_xg = 1.45 if is_home else 1.35
+    return fallback_xg, "Form N/A"
 
 def poisson_prob(lmbda: float, k: int) -> float:
     return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
 
-def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: dict, away_comp: dict, sport: str):
-    home_xg, home_rec, home_form = extract_advanced_team_xg(home_comp, is_home=True)
-    away_xg, away_rec, away_form = extract_advanced_team_xg(away_comp, is_home=False)
+def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict, away_comp: dict, sport: str):
+    home_xg, home_rec = extract_real_team_stats(home_comp, is_home=True)
+    away_xg, away_rec = extract_real_team_stats(away_comp, is_home=False)
 
     home_win, draw, away_win = 0.0, 0.0, 0.0
-    o05, o15, o25, o35, btts = 0.0, 0.0, 0.0, 0.0, 0.0
+    o25, btts = 0.0, 0.0
 
     for h in range(6):
         for a in range(6):
@@ -304,26 +248,14 @@ def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: di
             if h > a: home_win += p
             elif h == a: draw += p
             else: away_win += p
-            
-            total = h + a
-            if total > 0.5: o05 += p
-            if total > 1.5: o15 += p
-            if total > 2.5: o25 += p
-            if total > 3.5: o35 += p
+            if (h + a) > 2.5: o25 += p
             if h > 0 and a > 0: btts += p
 
     hw = max(5, round(home_win * 100))
     dr = max(2, round(draw * 100)) if sport == "Football" else 2
     aw = max(5, round(away_win * 100))
-    o05_p = round(o05 * 100)
-    o15_p = round(o15 * 100)
     o25_p = round(o25 * 100)
-    o35_p = round(o35 * 100)
-    u25_p = 100 - o25_p
-    u35_p = 100 - o35_p
     btts_p = round(btts * 100)
-
-    total_xg = home_xg + away_xg
 
     if sport == "Basketball":
         detail = f"{home_team} -3.5" if hw >= aw else f"{away_team} +3.5"
@@ -331,35 +263,27 @@ def compute_advanced_ai_prediction(home_team: str, away_team: str, home_comp: di
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football Dynamic Market Engine
-        if total_xg >= 3.2 or o25_p >= 65:
+    else:  # Football
+        if hw >= 58 and (hw - aw) >= 20:
+            detail = f"{home_team} Straight Win"
+        elif aw >= 52 and (aw - hw) >= 12:
+            detail = f"{away_team} Straight Win"
+        elif o25_p >= 63:
             detail = "Over 2.5 Goals Scored"
-        elif o15_p >= 80:
-            detail = "Over 1.5 Goals Scored"
-        elif total_xg <= 1.6 or u25_p >= 65:
-            detail = "Under 2.5 Goals Scored"
-        elif u35_p >= 82:
-            detail = "Under 3.5 Goals Scored"
-        elif hw >= 60 and (hw - aw) >= 22:
-            detail = f"{home_team} Straight Win (1)"
-        elif aw >= 54 and (aw - hw) >= 14:
-            detail = f"{away_team} Straight Win (2)"
-        elif btts_p >= 62:
+        elif btts_p >= 61:
             detail = "Both Teams to Score (BTTS)"
         elif aw > hw:
-            detail = f"{away_team} Win or Draw (2X)"
+            detail = f"{away_team} Win or Draw (X2)"
         elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
-            detail = "Over 0.5 Goals Scored"
+            detail = "Over 1.5 Goals Scored"
 
-    max_confidence = max(hw, aw, o25_p, o15_p if "1.5" in detail else 0)
+    max_confidence = max(hw, aw, o25_p if sport == "Football" else 0)
 
     summary = (
-        f"Multi-Variable Stats & Form Breakdown: {home_team} (Rec: {home_rec}, Form: {home_form}, xG: {home_xg}) vs "
-        f"{away_team} (Rec: {away_rec}, Form: {away_form}, xG: {away_xg}). Combined expected goals: {total_xg:.2f}. "
-        f"Model probabilities: Home Win {hw}%, Draw {dr}%, Away Win {aw}%, Over 1.5 ({o15_p}%), Over 2.5 ({o25_p}%). "
-        f"Recommended market pick: {detail} ({max_confidence}% confidence)."
+        f"Stat comparison ({home_rec} vs {away_rec}). "
+        f"Calculated probabilities: Home {hw}%, Draw {dr}%, Away {aw}%. Recommended market: {detail} ({max_confidence}% confidence)."
     )
 
     return {
@@ -380,29 +304,21 @@ def evaluate_prediction_outcome(detail: str, home_team: str, away_team: str, hom
     detail_lower = detail.lower()
     total_goals = home_score + away_score
     
-    if "over 0.5" in detail_lower:
-        return total_goals > 0
-    elif "over 1.5" in detail_lower:
-        return total_goals > 1
-    elif "over 2.5" in detail_lower:
-        return total_goals > 2
-    elif "over 3.5" in detail_lower:
-        return total_goals > 3
+    if "over 2.5" in detail_lower:
+        return total_goals > 2.5
     elif "under 2.5" in detail_lower:
-        return total_goals < 3
-    elif "under 3.5" in detail_lower:
-        return total_goals < 4
+        return total_goals < 2.5
     elif "btts" in detail_lower or "both teams to score" in detail_lower:
         return home_score > 0 and away_score > 0
-    elif "win or draw" in detail_lower or "1x" in detail_lower or "2x" in detail_lower:
-        if home_team.lower() in detail_lower or "(1x)" in detail_lower:
+    elif "win or draw" in detail_lower or "1x" in detail_lower or "x2" in detail_lower:
+        if home_team.lower() in detail_lower:
             return home_score >= away_score
         else:
             return away_score >= home_score
-    elif "straight win" in detail_lower or "win" in detail_lower:
-        if home_team.lower() in detail_lower or "(1)" in detail_lower:
+    elif "win" in detail_lower:
+        if home_team.lower() in detail_lower:
             return home_score > away_score
-        elif away_team.lower() in detail_lower or "(2)" in detail_lower:
+        elif away_team.lower() in detail_lower:
             return away_score > home_score
     
     return (home_score > away_score) if home_team.lower() in detail_lower else (away_score > home_score)
@@ -424,7 +340,6 @@ ESPN_SPORT_ENDPOINTS = {
     ]
 }
 
-# --- API ENDPOINTS ---
 @app.get("/api/v1/fixtures", response_model=List[MatchSchema])
 def get_fixtures(
     target_date: str = Query(..., description="YYYY-MM-DD"),
@@ -445,10 +360,10 @@ def get_fixtures(
                 events = res.json().get("events", [])
                 for event in events:
                     event_id = event.get("id")
-                    league_info = event.get("league", {}) or {}
-                    raw_league_name = league_info.get("name") or event.get("season", {}).get("slug") or default_league_label
-                    
-                    league_name = normalize_league_name(raw_league_name)
+
+                    # Use extract_true_competition_name to bypass "Group Stage"
+                    raw_comp_name = extract_true_competition_name(event, default_league_label)
+                    league_name = normalize_league_name(raw_comp_name)
 
                     status_info = event.get("status", {}).get("type", {})
                     state = status_info.get("state", "pre")
@@ -500,7 +415,7 @@ def get_fixtures(
                     seen_teams_today.add(h_lower)
                     seen_teams_today.add(a_lower)
 
-                    ai = compute_advanced_ai_prediction(home_team, away_team, home_comp, away_comp, sport)
+                    ai = compute_unbiased_prediction(home_team, away_team, home_comp, away_comp, sport)
 
                     is_won = None
                     if match_status == "FINISHED":
@@ -560,18 +475,3 @@ def get_fixtures(
         ))
 
     return matches
-
-# --- FRONTEND APP MOUNTING ---
-frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
-
-if os.path.exists(frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
-
-    @app.get("/{full_path:path}")
-    def serve_frontend(full_path: str):
-        if full_path.startswith("api/"):
-            return {"detail": "API endpoint not found"}
-        file_path = os.path.join(frontend_dist, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_dist, "index.html"))
