@@ -1,10 +1,13 @@
 import math
 import re
+import os
 import requests
 from datetime import datetime
 from typing import List, Optional, Tuple
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="MicroPulse Unbiased Multi-Sport AI Engine")
@@ -58,7 +61,6 @@ GENERIC_STAGES = {
 }
 
 LEAGUE_MAPPING = {
-    # --- ENGLAND ---
     "premier league": "Premier League",
     "english premier league": "Premier League",
     "championship": "Championship",
@@ -66,28 +68,18 @@ LEAGUE_MAPPING = {
     "efl championship": "Championship",
     "fa cup": "FA Cup",
     "efl cup": "EFL Cup",
-
-    # --- SPAIN ---
     "laliga": "LaLiga",
     "spanish laliga": "LaLiga",
     "la liga": "LaLiga",
     "copa del rey": "Copa del Rey",
-
-    # --- ITALY ---
     "serie a": "Serie A",
     "italian serie a": "Serie A",
     "coppa italia": "Coppa Italia",
-
-    # --- GERMANY ---
     "bundesliga": "Bundesliga",
     "german bundesliga": "Bundesliga",
     "dfb pokal": "DFB-Pokal",
-
-    # --- FRANCE ---
     "ligue 1": "Ligue 1",
     "french ligue 1": "Ligue 1",
-
-    # --- INTERNATIONAL QUALIFIERS ---
     "caf world cup": "WC Qualifiers (Africa)",
     "afc world cup": "WC Qualifiers (Asia)",
     "concacaf world cup": "WC Qualifiers (CONCACAF)",
@@ -97,8 +89,6 @@ LEAGUE_MAPPING = {
     "afcon qualification": "AFCON Qualifiers",
     "international friendly": "Int. Friendly",
     "womens international friendly": "Women's Int. Friendly",
-
-    # --- TOP LEAGUES & CUPS ---
     "eredivisie": "Eredivisie",
     "primeira liga": "Liga Portugal",
     "liga portugal": "Liga Portugal",
@@ -112,11 +102,9 @@ LEAGUE_MAPPING = {
 }
 
 def extract_true_competition_name(event: dict, default_label: str) -> str:
-    """Rejects generic stage names like 'Group Stage' and extracts true Flashscore-style tournament titles."""
     competitions = event.get("competitions", [{}])
     comp_obj = competitions[0] if competitions else {}
     
-    # 1. Check event notes headline (e.g. '2026 FIFA World Cup Qualifiers, CAF')
     notes = comp_obj.get("notes", [])
     if notes and isinstance(notes, list) and len(notes) > 0:
         headline = notes[0].get("headline", "").strip()
@@ -137,18 +125,15 @@ def extract_true_competition_name(event: dict, default_label: str) -> str:
             if "africa cup of nations" in h_lower or "afcon" in h_lower:
                 return "AFCON Qualifiers"
 
-    # 2. Check competition series or tournament name
     series_title = comp_obj.get("series", {}).get("title", "").strip()
     if series_title and series_title.lower() not in GENERIC_STAGES:
         return series_title
 
-    # 3. Check event league name
     league_info = event.get("league", {}) or {}
     league_name = league_info.get("name", "").strip()
     if league_name and league_name.lower() not in GENERIC_STAGES:
         return league_name
 
-    # 4. Check season displayName
     season_info = event.get("season", {}) or {}
     season_name = season_info.get("displayName") or season_info.get("name") or ""
     if season_name and season_name.lower() not in GENERIC_STAGES:
@@ -157,7 +142,6 @@ def extract_true_competition_name(event: dict, default_label: str) -> str:
     return default_label
 
 def normalize_league_name(raw_league: str) -> str:
-    """Standardizes parsed league text into clean, human-readable filter titles."""
     if not raw_league:
         return "Top League"
     
@@ -361,7 +345,6 @@ def get_fixtures(
                 for event in events:
                     event_id = event.get("id")
 
-                    # Use extract_true_competition_name to bypass "Group Stage"
                     raw_comp_name = extract_true_competition_name(event, default_league_label)
                     league_name = normalize_league_name(raw_comp_name)
 
@@ -475,3 +458,26 @@ def get_fixtures(
         ))
 
     return matches
+
+# ROUTE HANDLER FOR FRONTEND ASSETS AND ROOT DOMAIN
+frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        if full_path.startswith("api/"):
+            return {"detail": "API endpoint not found"}
+        target_file = os.path.join(frontend_dist, full_path)
+        if os.path.exists(target_file) and os.path.isfile(target_file):
+            return FileResponse(target_file)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+else:
+    @app.get("/")
+    def root_status():
+        return {"status": "MicroPulse API Engine Running", "fixtures_endpoint": "/api/v1/fixtures"}
