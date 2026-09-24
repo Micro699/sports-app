@@ -52,9 +52,8 @@ class MatchSchema(BaseModel):
     aiSummary: str
     isWon: Optional[bool] = None
 
-# REAL-WORLD TEAM POWER RATING INDEX (Used when ESPN records are empty)
+# REAL-WORLD TEAM POWER RATING INDEX
 REAL_WORLD_POWER_INDEX = {
-    # International Powers & Regional Teams
     "ivory coast": 2.05, "tunisia": 1.90, "morocco": 2.20, "senegal": 2.15,
     "egypt": 1.95, "algeria": 1.90, "nigeria": 1.85, "cameroon": 1.80,
     "ghana": 1.65, "mali": 1.65, "south africa": 1.60, "uganda": 1.20,
@@ -212,7 +211,6 @@ def sanitize_team_name(team_name: str, league_name: str) -> str:
     return clean_name
 
 def extract_real_team_stats(comp: dict, is_home: bool, team_name: str) -> Tuple[float, str]:
-    """Calculates team xG from real ESPN records or real-world power ratings."""
     records = comp.get("records", [])
     summary = ""
     
@@ -236,14 +234,12 @@ def extract_real_team_stats(comp: dict, is_home: bool, team_name: str) -> Tuple[
         except Exception:
             pass
             
-    # Real-world team power lookup for unranked/international fixtures
     t_lower = team_name.lower().strip()
     for known_team, power in REAL_WORLD_POWER_INDEX.items():
         if known_team in t_lower:
             xg_val = power + (0.08 if is_home else 0.0)
             return round(xg_val, 2), f"Power Rank ({power})"
 
-    # Fully neutral, unbiased baseline if no records or power ratings exist
     fallback_xg = 1.30 + (0.08 if is_home else 0.0)
     return round(fallback_xg, 2), "Neutral Baseline"
 
@@ -255,7 +251,7 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
     away_xg, away_rec = extract_real_team_stats(away_comp, is_home=False, team_name=away_team)
 
     home_win, draw, away_win = 0.0, 0.0, 0.0
-    o15, o25, btts = 0.0, 0.0, 0.0
+    o15, o25, o35, btts = 0.0, 0.0, 0.0, 0.0
 
     for h in range(6):
         for a in range(6):
@@ -265,6 +261,7 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
             else: away_win += p
             if (h + a) > 1.5: o15 += p
             if (h + a) > 2.5: o25 += p
+            if (h + a) > 3.5: o35 += p
             if h > 0 and a > 0: btts += p
 
     hw = max(5, round(home_win * 100))
@@ -272,6 +269,7 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
     aw = max(5, round(away_win * 100))
     o15_p = round(o15 * 100)
     o25_p = round(o25 * 100)
+    o35_p = round(o35 * 100)
     btts_p = round(btts * 100)
     u25_p = 100 - o25_p
 
@@ -283,23 +281,34 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football - Symmetric Market Selection Logic
-        if hw >= 52 and (hw - aw) >= 14:
+    else:  # Football - Complete Sportsbook Market Routing Logic
+        # 1. Clear Match Winners (Dominant Teams)
+        if hw >= 58 and (hw - aw) >= 18:
             detail = f"{home_team} Straight Win"
-        elif aw >= 52 and (aw - hw) >= 14:
+        elif aw >= 54 and (aw - hw) >= 16:
             detail = f"{away_team} Straight Win"
-        elif total_expected_goals >= 2.70 and o25_p >= 55:
+
+        # 2. Ultra High-Scoring Matches -> Over 3.5 Goals
+        elif total_expected_goals >= 3.25 or o35_p >= 48:
+            detail = "Over 3.5 Goals Scored"
+
+        # 3. High-Scoring Matches -> Over 2.5 Goals
+        elif total_expected_goals >= 2.65 or o25_p >= 55:
             detail = "Over 2.5 Goals Scored"
-        elif btts_p >= 55 and home_xg >= 1.25 and away_xg >= 1.25:
+
+        # 4. Attacking Teams -> Both Teams to Score (BTTS)
+        elif btts_p >= 55 and home_xg >= 1.20 and away_xg >= 1.20:
             detail = "Both Teams to Score (BTTS)"
-        elif hw >= 38 and hw > aw:
-            detail = f"{home_team} Win or Draw (1X)"
-        elif aw >= 38 and aw > hw:
-            detail = f"{away_team} Win or Draw (X2)"
-        elif total_expected_goals <= 1.95 or u25_p >= 55:
+
+        # 5. Defensively Tight Matches -> Under 2.5 Goals
+        elif total_expected_goals <= 1.85 or u25_p >= 56:
             detail = "Under 2.5 Goals Scored"
-        elif o15_p >= 70:
+
+        # 6. High Goal Probability Safe Bets -> Over 1.5 Goals (Placed BEFORE Double Chance)
+        elif o15_p >= 72:
             detail = "Over 1.5 Goals Scored"
+
+        # 7. Close Matches -> Double Chance Safety Nets
         elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
@@ -330,14 +339,14 @@ def evaluate_prediction_outcome(detail: str, home_team: str, away_team: str, hom
     detail_lower = detail.lower()
     total_goals = home_score + away_score
     
-    if "over 2.5" in detail_lower:
+    if "over 3.5" in detail_lower:
+        return total_goals > 3.5
+    elif "over 2.5" in detail_lower:
         return total_goals > 2.5
     elif "under 2.5" in detail_lower:
         return total_goals < 2.5
     elif "over 1.5" in detail_lower:
         return total_goals > 1.5
-    elif "under 3.5" in detail_lower:
-        return total_goals < 3.5
     elif "btts" in detail_lower or "both teams to score" in detail_lower:
         return home_score > 0 and away_score > 0
     elif "win or draw" in detail_lower or "1x" in detail_lower or "x2" in detail_lower:
