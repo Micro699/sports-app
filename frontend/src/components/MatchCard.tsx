@@ -72,7 +72,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, activeTab, onSelect
             src={match.awayLogo}
             alt={match.awayTeam}
             className="w-7 h-7 object-contain flex-shrink-0"
-            onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT-LOGO; }}
+            onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_LOGO; }}
           />
           <span className="font-extrabold text-xs text-slate-100 leading-tight">{match.awayTeam}</span>
         </div>
