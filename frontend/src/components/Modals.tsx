@@ -2,7 +2,6 @@ import React from "react";
 import { X, TrendingUp, CheckCircle2, XCircle } from "lucide-react";
 import type { Match, AccuracyStats } from "../types";
 
-
 interface PredictionModalProps {
   match: Match | null;
   onClose: () => void;
@@ -55,12 +54,12 @@ interface VerifiedModalProps {
   type: "WON" | "LOST" | null;
   onClose: () => void;
   allMatches: Match[];
-  stats: AccuracyStats;
+  stats?: AccuracyStats;
 }
 
 export const VerifiedModal: React.FC<VerifiedModalProps> = ({ type, onClose, allMatches }) => {
   if (!type) return null;
-  const filtered = allMatches.filter((m) => m.status === "FINISHED" && m.isWon === (type === "WON"));
+  const filtered = allMatches.filter((m: Match) => m.status === "FINISHED" && m.isWon === (type === "WON"));
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -79,7 +78,7 @@ export const VerifiedModal: React.FC<VerifiedModalProps> = ({ type, onClose, all
               No verified {type.toLowerCase()} matches recorded for this date.
             </div>
           ) : (
-            filtered.map((match) => (
+            filtered.map((match: Match) => (
               <div key={match.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                 <div className="flex justify-between items-center text-[10px] text-slate-500 font-bold border-b border-slate-200/60 pb-1">
                   <span>{match.league}</span>

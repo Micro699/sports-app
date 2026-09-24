@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -38,6 +38,28 @@ export default function App() {
 
   const sportsList = ["Football", "Basketball"];
 
+  // --- Auto System Dark/Light Mode Listener ---
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const applyTheme = (isDark: boolean) => {
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    };
+
+    // Apply current system setting on initial load
+    applyTheme(mediaQuery.matches);
+
+    // Listen for real-time system changes (e.g. system auto-switches at dusk)
+    const handleChange = (e: MediaQueryListEvent) => applyTheme(e.matches);
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
   const getFormattedDate = (tab: string) => {
     const today = new Date();
     if (tab === "Yesterday") today.setDate(today.getDate() - 1);
@@ -68,10 +90,10 @@ export default function App() {
     fetchFixtures(activeSport, activeDateTab, customDate);
   }, [activeSport, activeDateTab, customDate]);
 
-  const liveCount = allMatches.filter((m) => m.status === "LIVE").length;
-  const availableLeagues = ["All", ...Array.from(new Set(allMatches.map((m) => m.league))).filter(Boolean)];
+  const liveCount = allMatches.filter((m: Match) => m.status === "LIVE").length;
+  const availableLeagues = ["All", ...Array.from(new Set(allMatches.map((m: Match) => m.league))).filter(Boolean)];
 
-  let filteredMatches = allMatches.filter((match) => {
+  let filteredMatches = allMatches.filter((match: Match) => {
     if (match.status === "FINISHED") return false;
     if (activeDateTab === "LIVE" && match.status !== "LIVE") return false;
     if (selectedLeague !== "All" && match.league !== selectedLeague) return false;
@@ -87,8 +109,8 @@ export default function App() {
 
   if (activeTab === "HotPicks") {
     filteredMatches = filteredMatches
-      .filter((m) => m.isHot || (m.aiProbabilities && Math.max(m.aiProbabilities.homeWin, m.aiProbabilities.awayWin, m.aiProbabilities.over25) >= 55))
-      .sort((a, b) => {
+      .filter((m: Match) => m.isHot || (m.aiProbabilities && Math.max(m.aiProbabilities.homeWin, m.aiProbabilities.awayWin, m.aiProbabilities.over25) >= 55))
+      .sort((a: Match, b: Match) => {
         const probA = Math.max(a.aiProbabilities?.homeWin || 0, a.aiProbabilities?.awayWin || 0, a.aiProbabilities?.over25 || 0);
         const probB = Math.max(b.aiProbabilities?.homeWin || 0, b.aiProbabilities?.awayWin || 0, b.aiProbabilities?.over25 || 0);
         return probB - probA;
@@ -100,16 +122,16 @@ export default function App() {
   const currentMatches = filteredMatches.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   // --- Dynamic Live Accuracy Calculations ---
-  const finishedMatches = allMatches.filter((m) => m.status === "FINISHED" && m.isWon !== null && m.isWon !== undefined);
-  const liveWon = finishedMatches.filter((m) => m.isWon === true).length;
-  const liveLost = finishedMatches.filter((m) => m.isWon === false).length;
+  const finishedMatches = allMatches.filter((m: Match) => m.status === "FINISHED" && m.isWon !== null && m.isWon !== undefined);
+  const liveWon = finishedMatches.filter((m: Match) => m.isWon === true).length;
+  const liveLost = finishedMatches.filter((m: Match) => m.isWon === false).length;
   const liveTotalVerified = finishedMatches.length;
   const liveOverallWinRate = liveTotalVerified > 0 ? Math.round((liveWon / liveTotalVerified) * 100) : 88;
 
   const getMarketStats = (keywords: string[], fallbackRate: number) => {
-    const picks = finishedMatches.filter((m) => keywords.some((k) => m.predictionDetail.toLowerCase().includes(k.toLowerCase())));
+    const picks = finishedMatches.filter((m: Match) => keywords.some((k: string) => m.predictionDetail.toLowerCase().includes(k.toLowerCase())));
     if (picks.length === 0) return fallbackRate;
-    return Math.round((picks.filter((m) => m.isWon).length / picks.length) * 100);
+    return Math.round((picks.filter((m: Match) => m.isWon).length / picks.length) * 100);
   };
 
   const goalsRate = getMarketStats(["over", "under", "goals"], 92);
@@ -125,7 +147,7 @@ export default function App() {
   ].reduce((max, curr) => (curr.rate > max.rate ? curr : max));
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 pb-12 font-sans relative overflow-x-hidden">
+    <div className="min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 pb-12 font-sans relative overflow-x-hidden transition-colors duration-200">
       
       <Sidebar 
         isOpen={isSidebarOpen} 
@@ -150,13 +172,13 @@ export default function App() {
 
       <main className="max-w-md mx-auto space-y-4 pt-3 px-3">
         {/* Filters Card */}
-        <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-xs space-y-3">
-          <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 pb-2 text-xs font-bold">
-            {sportsList.map((sport) => (
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-3 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition-colors">
+          <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 dark:border-slate-800 pb-2 text-xs font-bold">
+            {sportsList.map((sport: string) => (
               <button 
                 key={sport} 
                 onClick={() => { setActiveSport(sport); setSelectedLeague("All"); }} 
-                className={`pb-1 ${activeSport === sport ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}
+                className={`pb-1 ${activeSport === sport ? "text-slate-900 dark:text-white border-b-2 border-orange-500 font-extrabold" : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"}`}
               >
                 {sport}
               </button>
@@ -164,29 +186,29 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-2 text-xs font-semibold overflow-x-auto">
-            {["Yesterday", "Today", "Tomorrow"].map((tab) => (
+            {["Yesterday", "Today", "Tomorrow"].map((tab: string) => (
               <button 
                 key={tab} 
                 onClick={() => { setActiveDateTab(tab); setCustomDate(""); }} 
-                className={`py-1.5 px-3 rounded-lg border ${activeDateTab === tab && !customDate ? "bg-orange-50 border-orange-500 text-orange-600 font-bold" : "bg-slate-50 border-slate-200 text-slate-600"}`}
+                className={`py-1.5 px-3 rounded-lg border ${activeDateTab === tab && !customDate ? "bg-orange-50 dark:bg-orange-950/40 border-orange-500 text-orange-600 dark:text-orange-400 font-bold" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"}`}
               >
                 {tab}
               </button>
             ))}
-            <div className={`relative flex items-center space-x-1 border rounded-lg px-2.5 py-1.5 whitespace-nowrap ${customDate ? "bg-orange-50 border-orange-500 text-orange-600 font-bold" : "bg-slate-50 border-slate-200 text-slate-600"}`}>
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <div className={`relative flex items-center space-x-1 border rounded-lg px-2.5 py-1.5 whitespace-nowrap ${customDate ? "bg-orange-50 dark:bg-orange-950/40 border-orange-500 text-orange-600 dark:text-orange-400 font-bold" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"}`}>
+              <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               <span>{customDate || "Date"}</span>
-              <input type="date" value={customDate} onChange={(e) => setCustomDate(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+              <input type="date" value={customDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomDate(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
             </div>
           </div>
 
           {availableLeagues.length > 1 && (
             <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 text-[11px] font-semibold scrollbar-none">
-              {availableLeagues.map((league) => (
+              {availableLeagues.map((league: string) => (
                 <button 
                   key={league} 
                   onClick={() => { setSelectedLeague(league); setCurrentPage(1); }} 
-                  className={`px-3 py-1 rounded-full border whitespace-nowrap ${selectedLeague === league ? "bg-slate-900 text-white font-extrabold" : "bg-slate-50 text-slate-600 border-slate-200"}`}
+                  className={`px-3 py-1 rounded-full border whitespace-nowrap ${selectedLeague === league ? "bg-slate-900 text-white dark:bg-orange-500 dark:text-slate-950 font-extrabold" : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"}`}
                 >
                   {league}
                 </button>
@@ -197,14 +219,14 @@ export default function App() {
 
         {/* View Tabs Bar */}
         <div className="flex justify-between items-center px-1">
-          <div className="flex border-b border-slate-200 text-xs font-bold space-x-4">
+          <div className="flex border-b border-slate-200 dark:border-slate-800 text-xs font-bold space-x-4">
             {(["Predictions", "HotPicks", "Odds", "Accuracy"] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 ${activeTab === tab ? "text-slate-900 border-b-2 border-orange-500 font-extrabold" : "text-slate-400"}`}>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 ${activeTab === tab ? "text-slate-900 dark:text-white border-b-2 border-orange-500 font-extrabold" : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"}`}>
                 {tab === "HotPicks" ? <span className="flex items-center space-x-1"><Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" /><span>Hot Picks</span></span> : tab}
               </button>
             ))}
           </div>
-          <span className="text-xs text-slate-500 font-bold">{filteredMatches.length} {activeTab === "HotPicks" ? "Top Picks" : "Matches"}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{filteredMatches.length} {activeTab === "HotPicks" ? "Top Picks" : "Matches"}</span>
         </div>
 
         {/* Hot Picks Banner */}
@@ -218,7 +240,7 @@ export default function App() {
 
         {/* Accuracy Dashboard */}
         {activeTab === "Accuracy" && (
-          <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-4 shadow-lg border border-slate-800">
+          <div className="bg-slate-900 dark:bg-slate-900/90 text-white rounded-2xl p-4 space-y-4 shadow-lg border border-slate-800">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2"><Award className="w-5 h-5 text-amber-400" /><span className="font-extrabold text-sm">AI Model Accuracy</span></div>
               <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-black text-xs px-2.5 py-0.5 rounded-full">{liveOverallWinRate}% Win Rate</span>
@@ -255,30 +277,38 @@ export default function App() {
 
         {/* Match Cards List */}
         {isLoading ? (
-          <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 flex flex-col items-center space-y-2">
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-8 text-center text-xs text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 flex flex-col items-center space-y-2">
             <RefreshCw className="w-5 h-5 animate-spin text-orange-500" />
             <span>Fetching real-time matches...</span>
           </div>
         ) : filteredMatches.length === 0 ? (
-          <div className="bg-white rounded-xl p-8 text-center text-xs text-slate-500 border border-slate-200 space-y-2">
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-8 text-center text-xs text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 space-y-2">
             <Radio className="w-8 h-8 text-rose-400 mx-auto animate-pulse" />
-            <p className="font-extrabold text-slate-800 text-sm">No Matches Available</p>
+            <p className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">No Matches Available</p>
           </div>
         ) : (
-          currentMatches.map((match) => (
-            <MatchCard key={match.id} match={match} activeTab={activeTab} onSelectMatch={(m) => setSelectedMatchModal(m)} />
+          currentMatches.map((match: Match) => (
+            <MatchCard key={match.id} match={match} activeTab={activeTab} onSelectMatch={(m: Match) => setSelectedMatchModal(m)} />
           ))
         )}
 
         {/* Pagination */}
         {totalPages > 1 && !isLoading && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 flex justify-between items-center text-xs font-bold">
-            <button disabled={currentPage === 1} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white rounded-xl disabled:bg-slate-100 disabled:text-slate-400">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 flex justify-between items-center text-xs font-bold">
+            <button 
+              disabled={currentPage === 1} 
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} 
+              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600"
+            >
               <ChevronLeft className="w-4 h-4" />
               <span>Previous</span>
             </button>
-            <span className="text-slate-700">Page <span className="text-orange-600 font-extrabold">{currentPage}</span> of {totalPages}</span>
-            <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white rounded-xl disabled:bg-slate-100 disabled:text-slate-400">
+            <span className="text-slate-700 dark:text-slate-300">Page <span className="text-orange-600 font-extrabold">{currentPage}</span> of {totalPages}</span>
+            <button 
+              disabled={currentPage >= totalPages} 
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} 
+              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600"
+            >
               <span>Next</span>
               <ChevronRight className="w-4 h-4" />
             </button>

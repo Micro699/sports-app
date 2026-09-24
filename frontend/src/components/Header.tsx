@@ -83,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => {
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
