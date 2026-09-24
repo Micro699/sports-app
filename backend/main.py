@@ -129,16 +129,13 @@ def clean_title_case(text: str) -> str:
     return cleaned.strip().title() if cleaned else text.title()
 
 def resolve_clean_league_name(event: dict, home_team: str, away_team: str, default_label: str) -> str:
-    """Extracts clean Flashscore tournament names, permanently eliminating generic stage labels."""
     league_info = event.get("league", {}) or {}
     comp_obj = event.get("competitions", [{}])[0] if event.get("competitions") else {}
 
-    # 1. Check ESPN Slug Mapping
     slug = (league_info.get("slug") or "").lower()
     if slug in ESPN_SLUG_MAP:
         return ESPN_SLUG_MAP[slug]
 
-    # 2. Check Midsize Name & Abbreviation
     mid_name = (league_info.get("midsizeName") or "").strip()
     if mid_name and mid_name.lower() not in GENERIC_REJECTS:
         return clean_title_case(mid_name)
@@ -147,7 +144,6 @@ def resolve_clean_league_name(event: dict, home_team: str, away_team: str, defau
     if abbr and abbr.lower() not in GENERIC_REJECTS and len(abbr) >= 3:
         return abbr.upper()
 
-    # 3. Check League Name against Text Mapping
     name = (league_info.get("name") or "").strip()
     if name and name.lower() not in GENERIC_REJECTS:
         n_lower = name.lower()
@@ -156,7 +152,6 @@ def resolve_clean_league_name(event: dict, home_team: str, away_team: str, defau
                 return v
         return clean_title_case(name)
 
-    # 4. Check Notes Headline
     notes = comp_obj.get("notes", [])
     if notes and isinstance(notes, list) and len(notes) > 0:
         headline = notes[0].get("headline", "").strip()
@@ -167,7 +162,6 @@ def resolve_clean_league_name(event: dict, home_team: str, away_team: str, defau
             if "afcon" in h_lower or "africa cup" in h_lower: return "AFCON Qualifiers"
             if "ncaa" in h_lower or "college" in h_lower: return "NCAA College Soccer"
 
-    # 5. Fallback Team Inference
     h_team, a_team = home_team.lower(), away_team.lower()
     if any(x in h_team or x in a_team for x in ["hornets", "highlanders", "ucla", "stanford", "uc riverside", "sacramento"]):
         return "NCAA College Soccer"
@@ -206,7 +200,8 @@ def sanitize_team_name(team_name: str, league_name: str) -> str:
             
     return clean_name
 
-def extract_real_team_stats(comp: dict, is_home: bool) -> Tuple[float, str]:
+def extract_real_team_stats(comp: dict, is_home: bool, team_name: str) -> Tuple[float, str]:
+    """Calculates team xG from records or uses neutral team-hash variance when records are absent."""
     records = comp.get("records", [])
     summary = ""
     
@@ -224,24 +219,27 @@ def extract_real_team_stats(comp: dict, is_home: bool) -> Tuple[float, str]:
             win_rate = wins / total_games
             loss_rate = losses / total_games
             
-            base_xg = 0.85 + (win_rate * 1.85) - (loss_rate * 0.45) + (0.10 if is_home else 0.0)
+            base_xg = 0.90 + (win_rate * 1.80) - (loss_rate * 0.50) + (0.05 if is_home else 0.0)
             formatted_record = f"{wins}W-{draws}D-{losses}L"
             return round(max(0.5, min(3.8, base_xg)), 2), formatted_record
         except Exception:
             pass
             
-    fallback_xg = 1.45 if is_home else 1.35
-    return fallback_xg, "Form N/A"
+    # Deterministic xG variance derived from team name so every unranked game is uniquely evaluated
+    hash_val = sum(ord(c) for c in team_name)
+    variance = ((hash_val % 9) - 4) * 0.06  # -0.24 to +0.24
+    fallback_xg = max(0.85, min(2.4, 1.35 + variance + (0.05 if is_home else 0.0)))
+    return round(fallback_xg, 2), "Form N/A"
 
 def poisson_prob(lmbda: float, k: int) -> float:
     return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
 
 def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict, away_comp: dict, sport: str):
-    home_xg, home_rec = extract_real_team_stats(home_comp, is_home=True)
-    away_xg, away_rec = extract_real_team_stats(away_comp, is_home=False)
+    home_xg, home_rec = extract_real_team_stats(home_comp, is_home=True, team_name=home_team)
+    away_xg, away_rec = extract_real_team_stats(away_comp, is_home=False, team_name=away_team)
 
     home_win, draw, away_win = 0.0, 0.0, 0.0
-    o25, btts = 0.0, 0.0
+    o15, o25, btts = 0.0, 0.0, 0.0
 
     for h in range(6):
         for a in range(6):
@@ -249,14 +247,19 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
             if h > a: home_win += p
             elif h == a: draw += p
             else: away_win += p
+            if (h + a) > 1.5: o15 += p
             if (h + a) > 2.5: o25 += p
             if h > 0 and a > 0: btts += p
 
     hw = max(5, round(home_win * 100))
     dr = max(2, round(draw * 100)) if sport == "Football" else 2
     aw = max(5, round(away_win * 100))
+    o15_p = round(o15 * 100)
     o25_p = round(o25 * 100)
     btts_p = round(btts * 100)
+    u25_p = 100 - o25_p
+
+    total_expected_goals = home_xg + away_xg
 
     if sport == "Basketball":
         detail = f"{home_team} -3.5" if hw >= aw else f"{away_team} +3.5"
@@ -264,21 +267,25 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football
-        if hw >= 58 and (hw - aw) >= 20:
+    else:  # Football - Multi-Market Selection Logic
+        if hw >= 54 and (hw - aw) >= 16:
             detail = f"{home_team} Straight Win"
-        elif aw >= 52 and (aw - hw) >= 12:
+        elif aw >= 48 and (aw - hw) >= 8:
             detail = f"{away_team} Straight Win"
-        elif o25_p >= 63:
+        elif o25_p >= 52 or total_expected_goals >= 2.65:
             detail = "Over 2.5 Goals Scored"
-        elif btts_p >= 61:
+        elif btts_p >= 50 and home_xg >= 1.15 and away_xg >= 1.15:
             detail = "Both Teams to Score (BTTS)"
-        elif aw > hw:
+        elif aw >= hw or (aw + dr) >= 55:
             detail = f"{away_team} Win or Draw (X2)"
-        elif hw >= aw:
+        elif total_expected_goals <= 1.85 or u25_p >= 56:
+            detail = "Under 2.5 Goals Scored"
+        elif o15_p >= 72:
+            detail = "Over 1.5 Goals Scored"
+        elif hw > aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
-            detail = "Over 1.5 Goals Scored"
+            detail = "Under 3.5 Goals Scored"
 
     max_confidence = max(hw, aw, o25_p if sport == "Football" else 0)
 
@@ -309,6 +316,10 @@ def evaluate_prediction_outcome(detail: str, home_team: str, away_team: str, hom
         return total_goals > 2.5
     elif "under 2.5" in detail_lower:
         return total_goals < 2.5
+    elif "over 1.5" in detail_lower:
+        return total_goals > 1.5
+    elif "under 3.5" in detail_lower:
+        return total_goals < 3.5
     elif "btts" in detail_lower or "both teams to score" in detail_lower:
         return home_score > 0 and away_score > 0
     elif "win or draw" in detail_lower or "1x" in detail_lower or "x2" in detail_lower:
@@ -380,7 +391,6 @@ def get_fixtures(
                     away_logo = away_comp.get("team", {}).get("logo", DEFAULT_LOGO)
                     away_score = int(away_comp.get("score", 0)) if away_comp.get("score") else 0
 
-                    # Resolve competition name using our 4-tier pipeline
                     league_name = resolve_clean_league_name(event, raw_home_team, raw_away_team, default_league_label)
 
                     home_team = sanitize_team_name(raw_home_team, league_name)
