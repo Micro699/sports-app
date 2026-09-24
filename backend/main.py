@@ -52,7 +52,19 @@ class MatchSchema(BaseModel):
     aiSummary: str
     isWon: Optional[bool] = None
 
-# GENERIC TERMS AND STAGES TO PERMANENTLY REJECT
+# REAL-WORLD TEAM POWER RATING INDEX (Used when ESPN records are empty)
+REAL_WORLD_POWER_INDEX = {
+    # International Powers & Regional Teams
+    "ivory coast": 2.05, "tunisia": 1.90, "morocco": 2.20, "senegal": 2.15,
+    "egypt": 1.95, "algeria": 1.90, "nigeria": 1.85, "cameroon": 1.80,
+    "ghana": 1.65, "mali": 1.65, "south africa": 1.60, "uganda": 1.20,
+    "zimbabwe": 1.15, "sierra leone": 1.10, "libya": 1.25, "botswana": 1.05,
+    "france": 2.40, "argentina": 2.45, "brazil": 2.35, "england": 2.30,
+    "spain": 2.35, "germany": 2.20, "portugal": 2.20, "netherlands": 2.15,
+    "usa": 1.80, "mexico": 1.80, "japan": 1.90, "south korea": 1.80,
+    "equatorial guinea": 1.30, "congo dr": 1.45, "andorra": 0.90, "malta": 0.95
+}
+
 GENERIC_REJECTS = {
     "football", "soccer", "group stage", "regular season", "1st round", "2nd round", "3rd round",
     "round of 16", "quarter-finals", "semi-finals", "finals", "playoffs", "play-offs",
@@ -63,7 +75,6 @@ GENERIC_REJECTS = {
     "stage 3", "round 1", "round 2", "round 3", "league", "cup", "mens soccer", "womens soccer"
 }
 
-# DIRECT SLUG & MIDNAME MAPPINGS FOR FLASHSCORE PARITY
 ESPN_SLUG_MAP = {
     "eng.1": "Premier League",
     "eng.2": "Championship",
@@ -201,7 +212,7 @@ def sanitize_team_name(team_name: str, league_name: str) -> str:
     return clean_name
 
 def extract_real_team_stats(comp: dict, is_home: bool, team_name: str) -> Tuple[float, str]:
-    """Calculates team xG from records or uses neutral team-hash variance when records are absent."""
+    """Calculates team xG from real ESPN records or real-world power ratings."""
     records = comp.get("records", [])
     summary = ""
     
@@ -219,17 +230,22 @@ def extract_real_team_stats(comp: dict, is_home: bool, team_name: str) -> Tuple[
             win_rate = wins / total_games
             loss_rate = losses / total_games
             
-            base_xg = 0.90 + (win_rate * 1.80) - (loss_rate * 0.50) + (0.05 if is_home else 0.0)
+            base_xg = 0.90 + (win_rate * 1.80) - (loss_rate * 0.50) + (0.08 if is_home else 0.0)
             formatted_record = f"{wins}W-{draws}D-{losses}L"
             return round(max(0.5, min(3.8, base_xg)), 2), formatted_record
         except Exception:
             pass
             
-    # Deterministic xG variance derived from team name so every unranked game is uniquely evaluated
-    hash_val = sum(ord(c) for c in team_name)
-    variance = ((hash_val % 9) - 4) * 0.06  # -0.24 to +0.24
-    fallback_xg = max(0.85, min(2.4, 1.35 + variance + (0.05 if is_home else 0.0)))
-    return round(fallback_xg, 2), "Form N/A"
+    # Real-world team power lookup for unranked/international fixtures
+    t_lower = team_name.lower().strip()
+    for known_team, power in REAL_WORLD_POWER_INDEX.items():
+        if known_team in t_lower:
+            xg_val = power + (0.08 if is_home else 0.0)
+            return round(xg_val, 2), f"Power Rank ({power})"
+
+    # Fully neutral, unbiased baseline if no records or power ratings exist
+    fallback_xg = 1.30 + (0.08 if is_home else 0.0)
+    return round(fallback_xg, 2), "Neutral Baseline"
 
 def poisson_prob(lmbda: float, k: int) -> float:
     return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
@@ -267,25 +283,27 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football - Multi-Market Selection Logic
-        if hw >= 54 and (hw - aw) >= 16:
+    else:  # Football - Symmetric Market Selection Logic
+        if hw >= 52 and (hw - aw) >= 14:
             detail = f"{home_team} Straight Win"
-        elif aw >= 48 and (aw - hw) >= 8:
+        elif aw >= 52 and (aw - hw) >= 14:
             detail = f"{away_team} Straight Win"
-        elif o25_p >= 52 or total_expected_goals >= 2.65:
+        elif total_expected_goals >= 2.70 and o25_p >= 55:
             detail = "Over 2.5 Goals Scored"
-        elif btts_p >= 50 and home_xg >= 1.15 and away_xg >= 1.15:
+        elif btts_p >= 55 and home_xg >= 1.25 and away_xg >= 1.25:
             detail = "Both Teams to Score (BTTS)"
-        elif aw >= hw or (aw + dr) >= 55:
+        elif hw >= 38 and hw > aw:
+            detail = f"{home_team} Win or Draw (1X)"
+        elif aw >= 38 and aw > hw:
             detail = f"{away_team} Win or Draw (X2)"
-        elif total_expected_goals <= 1.85 or u25_p >= 56:
+        elif total_expected_goals <= 1.95 or u25_p >= 55:
             detail = "Under 2.5 Goals Scored"
-        elif o15_p >= 72:
+        elif o15_p >= 70:
             detail = "Over 1.5 Goals Scored"
-        elif hw > aw:
+        elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
-            detail = "Under 3.5 Goals Scored"
+            detail = f"{away_team} Win or Draw (X2)"
 
     max_confidence = max(hw, aw, o25_p if sport == "Football" else 0)
 
