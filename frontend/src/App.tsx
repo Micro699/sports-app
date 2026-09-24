@@ -8,7 +8,8 @@ import {
   Award, 
   TrendingUp, 
   Zap, 
-  Calendar 
+  Calendar,
+  Filter
 } from "lucide-react";
 import type { Match } from "./types";
 import { ITEMS_PER_PAGE } from "./types";
@@ -25,6 +26,7 @@ export default function App() {
   const [activeDateTab, setActiveDateTab] = useState("Today");
   const [customDate, setCustomDate] = useState("");
   const [selectedLeague, setSelectedLeague] = useState("All");
+  const [selectedMarketFilter, setSelectedMarketFilter] = useState("ALL");
   const [activeTab, setActiveTab] = useState<"Predictions" | "HotPicks" | "Odds" | "Accuracy">("Predictions");
   
   const [selectedMatchModal, setSelectedMatchModal] = useState<Match | null>(null);
@@ -37,6 +39,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const sportsList = ["Football", "Basketball"];
+
+  // --- Auto-scroll Smooth to Top on Pagination Change ---
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   // --- Auto System & Time-based Dark/Light Mode Listener ---
   useEffect(() => {
@@ -101,6 +108,19 @@ export default function App() {
   const liveCount = allMatches.filter((m: Match) => m.status === "LIVE").length;
   const availableLeagues = ["All", ...Array.from(new Set(allMatches.map((m: Match) => m.league))).filter(Boolean)];
 
+  // Helper for Specific O/U Goal Markets from Sidebar Selection
+  const getSpecificMarketDetail = (match: Match) => {
+    if (selectedMarketFilter === "ALL") return match.predictionDetail;
+    const probs = match.aiProbabilities || { over15: 70, over25: 50, over35: 35, over45: 20 };
+
+    if (selectedMarketFilter === "OU15") return (probs.over15 ?? 70) >= 70 ? "Over 1.5 Goals Scored" : "Under 1.5 Goals Scored";
+    if (selectedMarketFilter === "OU25") return (probs.over25 ?? 50) >= 52 ? "Over 2.5 Goals Scored" : "Under 2.5 Goals Scored";
+    if (selectedMarketFilter === "OU35") return (probs.over35 ?? 35) >= 42 ? "Over 3.5 Goals Scored" : "Under 3.5 Goals Scored";
+    if (selectedMarketFilter === "OU45") return (probs.over45 ?? 20) >= 28 ? "Over 4.5 Goals Scored" : "Under 4.5 Goals Scored";
+
+    return match.predictionDetail;
+  };
+
   let filteredMatches = allMatches.filter((match: Match) => {
     if (match.status === "FINISHED") return false;
     if (activeDateTab === "LIVE" && match.status !== "LIVE") return false;
@@ -163,6 +183,8 @@ export default function App() {
         sportsList={sportsList} 
         setActiveSport={setActiveSport} 
         setActiveTab={setActiveTab} 
+        selectedMarketFilter={selectedMarketFilter}
+        setSelectedMarketFilter={setSelectedMarketFilter}
       />
       
       <Header
@@ -212,6 +234,22 @@ export default function App() {
               <input type="date" value={customDate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomDate(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
             </div>
           </div>
+
+          {/* Active Specific Market Indicator Badge */}
+          {selectedMarketFilter !== "ALL" && (
+            <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-lg p-2 flex items-center justify-between text-xs">
+              <span className="flex items-center space-x-1.5 font-bold text-orange-700 dark:text-orange-300">
+                <Filter className="w-3.5 h-3.5" />
+                <span>Market: O/U {selectedMarketFilter.replace("OU", "") / 10} Goals</span>
+              </span>
+              <button 
+                onClick={() => setSelectedMarketFilter("ALL")}
+                className="text-[10px] font-black bg-orange-600 text-white px-2 py-0.5 rounded-full hover:bg-orange-700"
+              >
+                Clear
+              </button>
+            </div>
+          )}
 
           {/* League Pills Bar */}
           {availableLeagues.length > 1 && (
@@ -300,26 +338,33 @@ export default function App() {
           </div>
         ) : (
           currentMatches.map((match: Match) => (
-            <MatchCard key={match.id} match={match} activeTab={activeTab} onSelectMatch={(m: Match) => setSelectedMatchModal(m)} />
+            <MatchCard 
+              key={match.id} 
+              match={{ ...match, predictionDetail: getSpecificMarketDetail(match) }} 
+              activeTab={activeTab} 
+              onSelectMatch={(m: Match) => setSelectedMatchModal(m)} 
+            />
           ))
         )}
 
-        {/* Pagination */}
+        {/* Pagination Controls */}
         {totalPages > 1 && !isLoading && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-3 flex justify-between items-center text-xs font-bold">
             <button 
               disabled={currentPage === 1} 
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} 
-              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600"
+              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600 active:scale-95 transition"
             >
               <ChevronLeft className="w-4 h-4" />
               <span>Previous</span>
             </button>
+
             <span className="text-slate-700 dark:text-slate-300">Page <span className="text-orange-600 font-extrabold">{currentPage}</span> of {totalPages}</span>
+
             <button 
               disabled={currentPage >= totalPages} 
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} 
-              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600"
+              className="flex items-center space-x-1 px-3 py-2 bg-slate-900 text-white dark:bg-slate-800 dark:text-slate-100 rounded-xl disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-800/40 dark:disabled:text-slate-600 active:scale-95 transition"
             >
               <span>Next</span>
               <ChevronRight className="w-4 h-4" />

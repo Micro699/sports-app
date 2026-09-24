@@ -29,7 +29,10 @@ class AiProbabilitiesSchema(BaseModel):
     homeWin: int
     draw: int
     awayWin: int
+    over15: int
     over25: int
+    over35: int
+    over45: int
     btts: int
 
 class MatchSchema(BaseModel):
@@ -251,10 +254,10 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
     away_xg, away_rec = extract_real_team_stats(away_comp, is_home=False, team_name=away_team)
 
     home_win, draw, away_win = 0.0, 0.0, 0.0
-    o15, o25, o35, btts = 0.0, 0.0, 0.0, 0.0
+    o15, o25, o35, o45, btts = 0.0, 0.0, 0.0, 0.0, 0.0
 
-    for h in range(6):
-        for a in range(6):
+    for h in range(7):
+        for a in range(7):
             p = poisson_prob(home_xg, h) * poisson_prob(away_xg, a)
             if h > a: home_win += p
             elif h == a: draw += p
@@ -262,6 +265,7 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
             if (h + a) > 1.5: o15 += p
             if (h + a) > 2.5: o25 += p
             if (h + a) > 3.5: o35 += p
+            if (h + a) > 4.5: o45 += p
             if h > 0 and a > 0: btts += p
 
     hw = max(5, round(home_win * 100))
@@ -270,6 +274,7 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
     o15_p = round(o15 * 100)
     o25_p = round(o25 * 100)
     o35_p = round(o35 * 100)
+    o45_p = round(o45 * 100)
     btts_p = round(btts * 100)
     u25_p = 100 - o25_p
 
@@ -281,34 +286,25 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football - Complete Balanced Sportsbook Market Priority
-        # 1. Straight Wins (1 or 2) - Strong Favorites
+    else:  # Football - Default Mixed Selection
         if hw >= 46 and (hw - aw) >= 10:
             detail = f"{home_team} Straight Win"
         elif aw >= 44 and (aw - hw) >= 8:
             detail = f"{away_team} Straight Win"
-
-        # 2. Double Chance (1X or 2X) - Mild Favorites
         elif hw >= 38 and (hw - aw) >= 4:
             detail = f"{home_team} Win or Draw (1X)"
         elif aw >= 36 and (aw - hw) >= 4:
             detail = f"{away_team} Win or Draw (X2)"
-
-        # 3. High Goal / BTTS Matches
         elif total_expected_goals >= 3.20 or o35_p >= 48:
             detail = "Over 3.5 Goals Scored"
         elif o25_p >= 58 and total_expected_goals >= 2.65:
             detail = "Over 2.5 Goals Scored"
         elif btts_p >= 58 and home_xg >= 1.25 and away_xg >= 1.25:
             detail = "Both Teams to Score (BTTS)"
-
-        # 4. Low Goal / Safe Goal Fallbacks
         elif u25_p >= 58 or total_expected_goals <= 1.85:
             detail = "Under 2.5 Goals Scored"
         elif o15_p >= 75:
             detail = "Over 1.5 Goals Scored"
-
-        # 5. Generic Fallback
         elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
@@ -325,7 +321,9 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         "detail": detail,
         "max_confidence": max_confidence,
         "probabilities": AiProbabilitiesSchema(
-            homeWin=hw, draw=dr, awayWin=aw, over25=o25_p, btts=btts_p
+            homeWin=hw, draw=dr, awayWin=aw, 
+            over15=o15_p, over25=o25_p, over35=o35_p, over45=o45_p, 
+            btts=btts_p
         ),
         "odds": OddsSchema(
             home=str(round(max(1.05, 100 / hw), 2)),
@@ -339,14 +337,22 @@ def evaluate_prediction_outcome(detail: str, home_team: str, away_team: str, hom
     detail_lower = detail.lower()
     total_goals = home_score + away_score
     
-    if "over 3.5" in detail_lower:
+    if "over 4.5" in detail_lower:
+        return total_goals > 4.5
+    elif "under 4.5" in detail_lower:
+        return total_goals < 4.5
+    elif "over 3.5" in detail_lower:
         return total_goals > 3.5
+    elif "under 3.5" in detail_lower:
+        return total_goals < 3.5
     elif "over 2.5" in detail_lower:
         return total_goals > 2.5
     elif "under 2.5" in detail_lower:
         return total_goals < 2.5
     elif "over 1.5" in detail_lower:
         return total_goals > 1.5
+    elif "under 1.5" in detail_lower:
+        return total_goals < 1.5
     elif "btts" in detail_lower or "both teams to score" in detail_lower:
         return home_score > 0 and away_score > 0
     elif "win or draw" in detail_lower or "1x" in detail_lower or "x2" in detail_lower:
@@ -513,7 +519,6 @@ def get_fixtures(
 
     return matches
 
-# FRONTEND ASSET & SPA CATCH-ALL MOUNT
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 if os.path.exists(frontend_dist):
