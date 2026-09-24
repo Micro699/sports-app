@@ -281,34 +281,34 @@ def compute_unbiased_prediction(home_team: str, away_team: str, home_comp: dict,
         detail = f"{home_team} Win" if hw >= aw else f"{away_team} Win"
     elif sport == "Rugby":
         detail = f"{home_team} -5.5" if hw >= aw else f"{away_team} +5.5"
-    else:  # Football - Complete Sportsbook Market Routing Logic
-        # 1. Clear Match Winners (Dominant Teams)
-        if hw >= 58 and (hw - aw) >= 18:
+    else:  # Football - Complete Balanced Sportsbook Market Priority
+        # 1. Straight Wins (1 or 2) - Strong Favorites
+        if hw >= 46 and (hw - aw) >= 10:
             detail = f"{home_team} Straight Win"
-        elif aw >= 54 and (aw - hw) >= 16:
+        elif aw >= 44 and (aw - hw) >= 8:
             detail = f"{away_team} Straight Win"
 
-        # 2. Ultra High-Scoring Matches -> Over 3.5 Goals
-        elif total_expected_goals >= 3.25 or o35_p >= 48:
+        # 2. Double Chance (1X or 2X) - Mild Favorites
+        elif hw >= 38 and (hw - aw) >= 4:
+            detail = f"{home_team} Win or Draw (1X)"
+        elif aw >= 36 and (aw - hw) >= 4:
+            detail = f"{away_team} Win or Draw (X2)"
+
+        # 3. High Goal / BTTS Matches
+        elif total_expected_goals >= 3.20 or o35_p >= 48:
             detail = "Over 3.5 Goals Scored"
-
-        # 3. High-Scoring Matches -> Over 2.5 Goals
-        elif total_expected_goals >= 2.65 or o25_p >= 55:
+        elif o25_p >= 58 and total_expected_goals >= 2.65:
             detail = "Over 2.5 Goals Scored"
-
-        # 4. Attacking Teams -> Both Teams to Score (BTTS)
-        elif btts_p >= 55 and home_xg >= 1.20 and away_xg >= 1.20:
+        elif btts_p >= 58 and home_xg >= 1.25 and away_xg >= 1.25:
             detail = "Both Teams to Score (BTTS)"
 
-        # 5. Defensively Tight Matches -> Under 2.5 Goals
-        elif total_expected_goals <= 1.85 or u25_p >= 56:
+        # 4. Low Goal / Safe Goal Fallbacks
+        elif u25_p >= 58 or total_expected_goals <= 1.85:
             detail = "Under 2.5 Goals Scored"
-
-        # 6. High Goal Probability Safe Bets -> Over 1.5 Goals (Placed BEFORE Double Chance)
-        elif o15_p >= 72:
+        elif o15_p >= 75:
             detail = "Over 1.5 Goals Scored"
 
-        # 7. Close Matches -> Double Chance Safety Nets
+        # 5. Generic Fallback
         elif hw >= aw:
             detail = f"{home_team} Win or Draw (1X)"
         else:
