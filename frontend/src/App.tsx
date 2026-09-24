@@ -20,6 +20,46 @@ import { Sidebar } from "./components/Sidebar";
 import { MatchCard } from "./components/MatchCard";
 import { PredictionModal, VerifiedModal } from "./components/Modals";
 
+// Helper to check if a match qualifies for a specific O/U Goal Market filter
+const getMarketPredictionIfQualifies = (match: Match, marketFilter: string): { qualifies: boolean; detail: string } => {
+  if (marketFilter === "ALL") {
+    return { qualifies: true, detail: match.predictionDetail };
+  }
+
+  const probs = match.aiProbabilities;
+  if (!probs) return { qualifies: false, detail: match.predictionDetail };
+
+  if (marketFilter === "OU15") {
+    const p15 = probs.over15 ?? 70;
+    if (p15 >= 70) return { qualifies: true, detail: "Over 1.5 Goals Scored" };
+    if (p15 <= 35) return { qualifies: true, detail: "Under 1.5 Goals Scored" };
+    return { qualifies: false, detail: "" };
+  }
+
+  if (marketFilter === "OU25") {
+    const p25 = probs.over25 ?? 50;
+    if (p25 >= 58) return { qualifies: true, detail: "Over 2.5 Goals Scored" };
+    if (p25 <= 42) return { qualifies: true, detail: "Under 2.5 Goals Scored" };
+    return { qualifies: false, detail: "" };
+  }
+
+  if (marketFilter === "OU35") {
+    const p35 = probs.over35 ?? 30;
+    if (p35 >= 45) return { qualifies: true, detail: "Over 3.5 Goals Scored" };
+    if (p35 <= 20) return { qualifies: true, detail: "Under 3.5 Goals Scored" };
+    return { qualifies: false, detail: "" };
+  }
+
+  if (marketFilter === "OU45") {
+    const p45 = probs.over45 ?? 15;
+    if (p45 >= 35) return { qualifies: true, detail: "Over 4.5 Goals Scored" };
+    if (p45 <= 10) return { qualifies: true, detail: "Under 4.5 Goals Scored" };
+    return { qualifies: false, detail: "" };
+  }
+
+  return { qualifies: true, detail: match.predictionDetail };
+};
+
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeSport, setActiveSport] = useState("Football");
@@ -64,10 +104,8 @@ export default function App() {
       }
     };
 
-    // Apply immediately on load
     applyTheme();
 
-    // Listen for real-time system changes
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = () => applyTheme();
     mediaQuery.addEventListener("change", handleChange);
@@ -108,19 +146,6 @@ export default function App() {
   const liveCount = allMatches.filter((m: Match) => m.status === "LIVE").length;
   const availableLeagues = ["All", ...Array.from(new Set(allMatches.map((m: Match) => m.league))).filter(Boolean)];
 
-  // Helper for Specific O/U Goal Markets from Sidebar Selection
-  const getSpecificMarketDetail = (match: Match) => {
-    if (selectedMarketFilter === "ALL") return match.predictionDetail;
-    const probs = match.aiProbabilities || { over15: 70, over25: 50, over35: 35, over45: 20 };
-
-    if (selectedMarketFilter === "OU15") return (probs.over15 ?? 70) >= 70 ? "Over 1.5 Goals Scored" : "Under 1.5 Goals Scored";
-    if (selectedMarketFilter === "OU25") return (probs.over25 ?? 50) >= 52 ? "Over 2.5 Goals Scored" : "Under 2.5 Goals Scored";
-    if (selectedMarketFilter === "OU35") return (probs.over35 ?? 35) >= 42 ? "Over 3.5 Goals Scored" : "Under 3.5 Goals Scored";
-    if (selectedMarketFilter === "OU45") return (probs.over45 ?? 20) >= 28 ? "Over 4.5 Goals Scored" : "Under 4.5 Goals Scored";
-
-    return match.predictionDetail;
-  };
-
   const getMarketLabelText = (marketKey: string) => {
     if (marketKey === "OU15") return "1.5";
     if (marketKey === "OU25") return "2.5";
@@ -129,10 +154,17 @@ export default function App() {
     return "";
   };
 
+  // Filter Matches: Query out only matches that qualify for the selected market filter
   let filteredMatches = allMatches.filter((match: Match) => {
     if (match.status === "FINISHED") return false;
     if (activeDateTab === "LIVE" && match.status !== "LIVE") return false;
     if (selectedLeague !== "All" && match.league !== selectedLeague) return false;
+
+    // Filter out matches that don't qualify for the selected O/U line
+    if (selectedMarketFilter !== "ALL") {
+      const marketCheck = getMarketPredictionIfQualifies(match, selectedMarketFilter);
+      if (!marketCheck.qualifies) return false;
+    }
 
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
@@ -248,7 +280,7 @@ export default function App() {
             <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-lg p-2 flex items-center justify-between text-xs">
               <span className="flex items-center space-x-1.5 font-bold text-orange-700 dark:text-orange-300">
                 <Filter className="w-3.5 h-3.5" />
-                <span>Market: O/U {getMarketLabelText(selectedMarketFilter)} Goals</span>
+                <span>Market Filter: O/U {getMarketLabelText(selectedMarketFilter)} Goals</span>
               </span>
               <button 
                 onClick={() => setSelectedMarketFilter("ALL")}
@@ -342,17 +374,21 @@ export default function App() {
         ) : filteredMatches.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 rounded-xl p-8 text-center text-xs text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 space-y-2">
             <Radio className="w-8 h-8 text-rose-400 mx-auto animate-pulse" />
-            <p className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">No Matches Available</p>
+            <p className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">No Matches Found for Selected Market</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Try clearing the market filter or picking another date.</p>
           </div>
         ) : (
-          currentMatches.map((match: Match) => (
-            <MatchCard 
-              key={match.id} 
-              match={{ ...match, predictionDetail: getSpecificMarketDetail(match) }} 
-              activeTab={activeTab} 
-              onSelectMatch={(m: Match) => setSelectedMatchModal(m)} 
-            />
-          ))
+          currentMatches.map((match: Match) => {
+            const marketInfo = getMarketPredictionIfQualifies(match, selectedMarketFilter);
+            return (
+              <MatchCard 
+                key={match.id} 
+                match={{ ...match, predictionDetail: marketInfo.detail }} 
+                activeTab={activeTab} 
+                onSelectMatch={(m: Match) => setSelectedMatchModal(m)} 
+              />
+            );
+          })
         )}
 
         {/* Pagination Controls */}
