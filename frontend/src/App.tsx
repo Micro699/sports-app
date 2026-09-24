@@ -38,23 +38,31 @@ export default function App() {
 
   const sportsList = ["Football", "Basketball"];
 
-  // --- Auto System Dark/Light Mode Listener ---
+  // --- Auto System & Time-based Dark/Light Mode Listener ---
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      const systemPrefersDark = mediaQuery.matches;
 
-    const applyTheme = (isDark: boolean) => {
-      if (isDark) {
+      // Time-based fallback: Dark mode between 18:00 (6 PM) and 06:00 (6 AM)
+      const currentHour = new Date().getHours();
+      const isNightTime = currentHour >= 18 || currentHour < 6;
+
+      const shouldBeDark = systemPrefersDark || isNightTime;
+
+      if (shouldBeDark) {
         document.documentElement.classList.add("dark");
       } else {
         document.documentElement.classList.remove("dark");
       }
     };
 
-    // Apply current system setting on initial load
-    applyTheme(mediaQuery.matches);
+    // Apply immediately on load
+    applyTheme();
 
-    // Listen for real-time system changes (e.g. system auto-switches at dusk)
-    const handleChange = (e: MediaQueryListEvent) => applyTheme(e.matches);
+    // Listen for real-time system changes
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => applyTheme();
     mediaQuery.addEventListener("change", handleChange);
 
     return () => mediaQuery.removeEventListener("change", handleChange);
@@ -173,7 +181,9 @@ export default function App() {
       <main className="max-w-md mx-auto space-y-4 pt-3 px-3">
         {/* Filters Card */}
         <div className="bg-white dark:bg-slate-900 rounded-xl p-3 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition-colors">
-          <div className="flex space-x-6 overflow-x-auto border-b border-slate-100 dark:border-slate-800 pb-2 text-xs font-bold">
+          
+          {/* Sports Header Row */}
+          <div className="flex space-x-6 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden border-b border-slate-100 dark:border-slate-800 pb-2 text-xs font-bold">
             {sportsList.map((sport: string) => (
               <button 
                 key={sport} 
@@ -185,12 +195,13 @@ export default function App() {
             ))}
           </div>
 
-          <div className="flex items-center space-x-2 text-xs font-semibold overflow-x-auto">
+          {/* Date Filter Bar */}
+          <div className="flex items-center space-x-2 text-xs font-semibold overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {["Yesterday", "Today", "Tomorrow"].map((tab: string) => (
               <button 
                 key={tab} 
                 onClick={() => { setActiveDateTab(tab); setCustomDate(""); }} 
-                className={`py-1.5 px-3 rounded-lg border ${activeDateTab === tab && !customDate ? "bg-orange-50 dark:bg-orange-950/40 border-orange-500 text-orange-600 dark:text-orange-400 font-bold" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"}`}
+                className={`py-1.5 px-3 rounded-lg border whitespace-nowrap ${activeDateTab === tab && !customDate ? "bg-orange-50 dark:bg-orange-950/40 border-orange-500 text-orange-600 dark:text-orange-400 font-bold" : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"}`}
               >
                 {tab}
               </button>
@@ -202,8 +213,9 @@ export default function App() {
             </div>
           </div>
 
+          {/* League Pills Bar */}
           {availableLeagues.length > 1 && (
-            <div className="flex space-x-1.5 overflow-x-auto pt-1 pb-0.5 text-[11px] font-semibold scrollbar-none">
+            <div className="flex space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pt-1 pb-0.5 text-[11px] font-semibold">
               {availableLeagues.map((league: string) => (
                 <button 
                   key={league} 
@@ -219,14 +231,14 @@ export default function App() {
 
         {/* View Tabs Bar */}
         <div className="flex justify-between items-center px-1">
-          <div className="flex border-b border-slate-200 dark:border-slate-800 text-xs font-bold space-x-4">
+          <div className="flex border-b border-slate-200 dark:border-slate-800 text-xs font-bold space-x-4 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {(["Predictions", "HotPicks", "Odds", "Accuracy"] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 ${activeTab === tab ? "text-slate-900 dark:text-white border-b-2 border-orange-500 font-extrabold" : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"}`}>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 whitespace-nowrap ${activeTab === tab ? "text-slate-900 dark:text-white border-b-2 border-orange-500 font-extrabold" : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"}`}>
                 {tab === "HotPicks" ? <span className="flex items-center space-x-1"><Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" /><span>Hot Picks</span></span> : tab}
               </button>
             ))}
           </div>
-          <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{filteredMatches.length} {activeTab === "HotPicks" ? "Top Picks" : "Matches"}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-bold whitespace-nowrap pl-2">{filteredMatches.length} {activeTab === "HotPicks" ? "Top Picks" : "Matches"}</span>
         </div>
 
         {/* Hot Picks Banner */}
