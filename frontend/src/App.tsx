@@ -121,6 +121,14 @@ export default function App() {
     return match.predictionDetail;
   };
 
+  const getMarketLabelText = (marketKey: string) => {
+    if (marketKey === "OU15") return "1.5";
+    if (marketKey === "OU25") return "2.5";
+    if (marketKey === "OU35") return "3.5";
+    if (marketKey === "OU45") return "4.5";
+    return "";
+  };
+
   let filteredMatches = allMatches.filter((match: Match) => {
     if (match.status === "FINISHED") return false;
     if (activeDateTab === "LIVE" && match.status !== "LIVE") return false;
@@ -240,7 +248,7 @@ export default function App() {
             <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-lg p-2 flex items-center justify-between text-xs">
               <span className="flex items-center space-x-1.5 font-bold text-orange-700 dark:text-orange-300">
                 <Filter className="w-3.5 h-3.5" />
-                <span>Market: O/U {selectedMarketFilter.replace("OU", "") / 10} Goals</span>
+                <span>Market: O/U {getMarketLabelText(selectedMarketFilter)} Goals</span>
               </span>
               <button 
                 onClick={() => setSelectedMarketFilter("ALL")}

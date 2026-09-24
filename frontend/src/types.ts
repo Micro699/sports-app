@@ -10,14 +10,18 @@ export interface AiProbabilities {
   homeWin: number;
   draw: number;
   awayWin: number;
+  over05?: number;
+  over15?: number;
   over25: number;
+  over35?: number;
+  over45?: number;
   btts: number;
 }
 
 export interface Match {
   id: string;
   sport: string;
-  country: string;
+  country?: string;
   league: string;
   dateTime: string;
   homeTeam: string;
